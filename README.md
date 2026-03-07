@@ -1,8 +1,5 @@
 <div align="center">
   <img src="spotlightofficon.png" width="150" alt="Spotlight Off Icon" />
-  
-  <img src="Screenshot Spotlight Off..jpg" width="1000" alt="Spotlight Off Screenshot" />
-
 
   # Spotlight Off
 
@@ -13,7 +10,6 @@
   ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
 </div>
-
 
 ---
 
@@ -31,7 +27,7 @@ Every time you plug in an external drive, macOS quietly starts building a Spotli
 
 ## Screenshot
 
-> *(Add a screenshot of the menu bar and settings window here)*
+![Spotlight Off Screenshot](Screenshot%20Spotlight%20Off.jpg)
 
 ---
 
