@@ -17,6 +17,23 @@ struct DriveEntry: Codable, Identifiable, Equatable {
     }
 }
 
+// MARK: - Log Store
+
+class LogStore: ObservableObject {
+    static let shared = LogStore()
+    @Published var entries: [String] = []
+
+    func log(_ message: String) {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        let line = "[\(timestamp)] \(message)"
+        print(line)  // still prints to Xcode console too
+        DispatchQueue.main.async {
+            self.entries.append(line)
+            if self.entries.count > 200 { self.entries.removeFirst() }
+        }
+    }
+}
+
 // MARK: - App Entry Point
 
 @main
@@ -124,11 +141,11 @@ class DriveMonitor: ObservableObject {
 
     @objc private func volumeMounted(_ notification: NSNotification) {
         guard let path = notification.userInfo?["NSDevicePath"] as? String else { return }
-        print("[SpotlightOff] Volume mounted: \(path)")
+        LogStore.shared.log("Volume mounted: \(path)")
 
         let url = URL(fileURLWithPath: path)
         guard isExternalVolume(url) else {
-            print("[SpotlightOff] Skipped (not an external volume): \(path)")
+            LogStore.shared.log("Skipped (not an external volume): \(path)")
             return
         }
 
@@ -146,10 +163,10 @@ class DriveMonitor: ObservableObject {
         } else {
             resolvedPath = path
         }
-        print("[SpotlightOff] Resolved path: \(resolvedPath)")
+        LogStore.shared.log("Resolved path: \(resolvedPath)")
 
         let name = url.lastPathComponent.isEmpty ? "External Drive" : url.lastPathComponent
-        print("[SpotlightOff] Accepted — scheduling disable for: \(name)")
+        LogStore.shared.log("Accepted — scheduling disable for: \(name)")
 
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.handleVolume(path: resolvedPath, name: name)
@@ -168,7 +185,7 @@ class DriveMonitor: ObservableObject {
             .volumeIsLocalKey,
             .volumeIsRemovableKey
         ]) else {
-            print("[SpotlightOff] Could not read volume flags for \(url.path)")
+            LogStore.shared.log("Could not read volume flags for \(url.path)")
             return false
         }
 
@@ -177,7 +194,7 @@ class DriveMonitor: ObservableObject {
         let isLocal     = vals.volumeIsLocal           ?? false
         let isRemovable = vals.volumeIsRemovable       ?? false
 
-        print("[SpotlightOff] Flags — root:\(isRoot) internal:\(isInternal) local:\(isLocal) removable:\(isRemovable)")
+        LogStore.shared.log("Flags — root:\(isRoot) internal:\(isInternal) local:\(isLocal) removable:\(isRemovable)")
 
         if isRoot   { return false }
         if !isLocal { return false }   // skip network volumes
@@ -188,15 +205,15 @@ class DriveMonitor: ObservableObject {
 
     private func handleVolume(path: String, name: String) {
         let enabled = isIndexingEnabled(path: path)
-        print("[SpotlightOff] Indexing enabled for '\(name)': \(enabled)")
+        LogStore.shared.log("Indexing enabled for '\(name)': \(enabled)")
 
         guard enabled else {
-            print("[SpotlightOff] Already disabled — nothing to do.")
+            LogStore.shared.log("Already disabled — nothing to do.")
             return
         }
 
         let ok = disableIndexing(path: path)
-        print("[SpotlightOff] Disable succeeded: \(ok)")
+        LogStore.shared.log("Disable succeeded: \(ok)")
 
         if ok {
             DispatchQueue.main.async { [weak self] in
@@ -216,10 +233,10 @@ class DriveMonitor: ObservableObject {
             try p.run()
             p.waitUntilExit()
             let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            print("[SpotlightOff] mdutil -s: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
+            LogStore.shared.log("mdutil -s: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
             return !out.lowercased().contains("disabled")
         } catch {
-            print("[SpotlightOff] mdutil -s error: \(error)")
+            LogStore.shared.log("mdutil -s error: \(error)")
             return true
         }
     }
@@ -233,7 +250,7 @@ class DriveMonitor: ObservableObject {
         } else {
             volumesPath = path
         }
-        print("[SpotlightOff] Using path for mdutil: \(volumesPath)")
+        LogStore.shared.log("Using path for mdutil: \(volumesPath)")
 
         // First try running mdutil directly without admin — works if app has disk access
         if runMdutil(path: volumesPath) { return true }
@@ -252,13 +269,13 @@ class DriveMonitor: ObservableObject {
             try p.run(); p.waitUntilExit()
             let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            print("[SpotlightOff] mdutil direct out: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
-            print("[SpotlightOff] mdutil direct err: \(err.trimmingCharacters(in: .whitespacesAndNewlines))")
-            print("[SpotlightOff] mdutil direct exit: \(p.terminationStatus)")
+            LogStore.shared.log("mdutil direct out: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
+            LogStore.shared.log("mdutil direct err: \(err.trimmingCharacters(in: .whitespacesAndNewlines))")
+            LogStore.shared.log("mdutil direct exit: \(p.terminationStatus)")
             let combined = (out + err).lowercased()
             return p.terminationStatus == 0 && !combined.contains("error") && !combined.contains("could not")
         } catch {
-            print("[SpotlightOff] mdutil direct threw: \(error)")
+            LogStore.shared.log("mdutil direct threw: \(error)")
             return false
         }
     }
@@ -266,7 +283,7 @@ class DriveMonitor: ObservableObject {
     private func runMdutilAsAdmin(path: String) -> Bool {
         let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
         let script = "do shell script (\"/usr/bin/mdutil -i off \" & quoted form of \"\(escaped)\") with administrator privileges"
-        print("[SpotlightOff] Trying osascript admin for: \(path)")
+        LogStore.shared.log("Trying osascript admin for: \(path)")
 
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -277,13 +294,13 @@ class DriveMonitor: ObservableObject {
             try p.run(); p.waitUntilExit()
             let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            print("[SpotlightOff] osascript out: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
-            print("[SpotlightOff] osascript err: \(err.trimmingCharacters(in: .whitespacesAndNewlines))")
-            print("[SpotlightOff] osascript exit: \(p.terminationStatus)")
+            LogStore.shared.log("osascript out: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
+            LogStore.shared.log("osascript err: \(err.trimmingCharacters(in: .whitespacesAndNewlines))")
+            LogStore.shared.log("osascript exit: \(p.terminationStatus)")
             let combined = (out + err).lowercased()
             return p.terminationStatus == 0 && !combined.contains("error") && !combined.contains("could not")
         } catch {
-            print("[SpotlightOff] osascript threw: \(error)")
+            LogStore.shared.log("osascript threw: \(error)")
             return false
         }
     }
@@ -373,7 +390,7 @@ struct SettingsView: View {
                             }
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         } catch {
-                            print("[SpotlightOff] Launch at login error: \(error)")
+                            LogStore.shared.log("Launch at login error: \(error)")
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
@@ -453,7 +470,57 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding()
+
+            Divider()
+
+            // Activity Log
+            HStack {
+                Text("ACTIVITY LOG")
+                    .font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
+                Spacer()
+                Button("Clear") { LogStore.shared.entries.removeAll() }
+                    .buttonStyle(.borderless)
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            LogView()
+                .frame(height: 120)
+                .padding(.bottom, 8)
         }
         .frame(width: 440)
+    }
+}
+
+// MARK: - Log View
+
+struct LogView: View {
+    @ObservedObject var store = LogStore.shared
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(store.entries.enumerated()), id: \.offset) { index, line in
+                        Text(line)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(index)
+                    }
+                }
+                .padding(8)
+            }
+            .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+            .onChange(of: store.entries.count) { _ in
+                if let last = store.entries.indices.last {
+                    proxy.scrollTo(last, anchor: .bottom)
+                }
+            }
+        }
     }
 }
