@@ -1,5 +1,7 @@
 <div align="center">
   <img src="spotlightofficon.png" width="150" alt="Spotlight Off Icon" />
+  <img src="Screenshot Spotlight Off..jpg" width="1000" alt="Spotlight Off Screenshot" />
+
 
   # Spotlight Off
 
@@ -10,6 +12,7 @@
   ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
 </div>
+
 
 ---
 
