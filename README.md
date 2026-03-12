@@ -30,9 +30,17 @@ Every time you plug in an external drive, macOS quietly starts building a Spotli
 
 ---
 
-## Screenshot
+## Screenshots
 
-![Spotlight Off Screenshot](Screenshot%20Spotlight%20Off.jpg)
+<div align="center">
+  <img src="screenshot-menubar.png" width="280" alt="Menu bar dropdown" />
+  <br/><br/>
+  <img src="screenshot-general.png" width="480" alt="General settings tab" />
+  <br/><br/>
+  <img src="screenshot-drives.png" width="480" alt="Drives tab showing drive history" />
+  <br/><br/>
+  <img src="screenshot-log.png" width="480" alt="Log tab showing activity log" />
+</div>
 
 ---
 
