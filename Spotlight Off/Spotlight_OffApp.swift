@@ -1,46 +1,61 @@
+// Spotlight_OffApp.swift
+// App entry point, AppDelegate, and menu bar UI.
+//
+// Diverges from upstream (titleunknown/Spotlight-Off) in the following ways:
+//
+// • MenuBarExtra + Settings scene replace the upstream's manual NSStatusItem /
+//   NSWindow / NSHostingView approach. This is cleaner SwiftUI but requires
+//   macOS 14+ (upstream targets macOS 13). Tested and working on macOS 26 Tahoe.
+//   On Tahoe, the system log may emit a harmless "[NSStatusItemView] No matching
+//   scene to invalidate" warning due to changes in how Tahoe handles SwiftUI
+//   scene lifecycle — this does not affect functionality. As a guard against
+//   this becoming a functional issue in a future release, MenuBarView checks
+//   0.5s after the settings button is tapped whether a window actually appeared;
+//   if not, AppDelegate.openSettingsDirectly() opens it via NSWindow directly,
+//   matching the upstream's approach as a silent fallback.
+//
+// • @Environment(\.openSettings) is used to open the settings window, which
+//   is also macOS 14-only. If you need macOS 13 support, revert to the
+//   upstream's manual NSWindow pattern (see AppDelegate.openSettings in the
+//   original repo).
+//
+// • @MainActor on AppDelegate ensures DriveMonitor (also @MainActor) can be
+//   created safely at the call site without isolation errors.
+//
+// • scanMountedVolumes() is called at launch to handle drives that were
+//   already connected before the app started — not present in upstream.
+//
+// • UNUserNotificationCenter authorization is requested at launch to support
+//   system notifications when a drive is processed.
+//
+// • Settings windows are assigned .floating level so they stay above other
+//   apps' windows when the user switches away. Applied in both the SwiftUI
+//   scene path and the NSWindow fallback.
+//
+// • MenuBarView splits connected drives into two groups: active drives (Spotlight
+//   disabled, submenu offers "Exclude This Drive") and excluded connected drives
+//   (Spotlight enabled, submenu offers "Remove Exclusion"). This lets the user
+//   control exclusions without opening Settings.
+
 import SwiftUI
-import ServiceManagement
-
-// MARK: - Data Model
-
-struct DriveEntry: Codable, Identifiable, Equatable {
-    let id: UUID
-    let name: String
-    let path: String
-    let date: Date
-
-    init(name: String, path: String) {
-        self.id   = UUID()
-        self.name = name
-        self.path = path
-        self.date = Date()
-    }
-}
-
-// MARK: - Log Store
-
-class LogStore: ObservableObject {
-    static let shared = LogStore()
-    @Published var entries: [String] = []
-
-    func log(_ message: String) {
-        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        let line = "[\(timestamp)] \(message)"
-        print(line)  // still prints to Xcode console too
-        DispatchQueue.main.async {
-            self.entries.append(line)
-            if self.entries.count > 200 { self.entries.removeFirst() }
-        }
-    }
-}
+import UserNotifications
 
 // MARK: - App Entry Point
 
 @main
 struct SpotlightOffApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var appState = AppState.shared
 
     var body: some Scene {
+        MenuBarExtra {
+            MenuBarView(monitor: appDelegate.driveMonitor)
+        } label: {
+            Image(systemName: appState.iconName)
+                .accessibilityLabel("Spotlight Off")
+        }
+        .menuBarExtraStyle(.menu)
+
         Settings {
             SettingsView(monitor: appDelegate.driveMonitor)
         }
@@ -49,478 +64,151 @@ struct SpotlightOffApp: App {
 
 // MARK: - App Delegate
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var statusItem: NSStatusItem!
     let driveMonitor = DriveMonitor()
+
+    // Fallback settings window used when the SwiftUI Settings scene lifecycle
+    // is unreliable. Kept alive (isReleasedWhenClosed = false) so it can be
+    // raised rather than recreated on subsequent calls.
+    private var fallbackSettingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        setupMenuBar()
         driveMonitor.start()
+        // Scan volumes already mounted before the app started (e.g. after a restart).
+        driveMonitor.scanMountedVolumes()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
     }
 
-    // MARK: Menu Bar
-
-    func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "externaldrive.badge.xmark",
-                                   accessibilityDescription: "Spotlight Off")
-            button.image?.isTemplate = true
+    /// Opens the settings window directly via NSWindow, bypassing the SwiftUI
+    /// Settings scene entirely. Called automatically when the scene-based path
+    /// fails to produce a visible window (e.g. if MenuBarExtra scene lifecycle
+    /// breaks in a future macOS release). Also callable directly if needed.
+    func openSettingsDirectly() {
+        if let window = fallbackSettingsWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+            return
         }
-        buildMenu()
-        driveMonitor.onHistoryChanged = { [weak self] in
-            DispatchQueue.main.async { self?.buildMenu() }
-        }
-    }
-
-    func buildMenu() {
-        let menu = NSMenu()
-
-        let header = NSMenuItem(title: "Spotlight Off — Active", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        menu.addItem(.separator())
-
-        let history = driveMonitor.history
-        if history.isEmpty {
-            let empty = NSMenuItem(title: "No drives processed yet", action: nil, keyEquivalent: "")
-            empty.isEnabled = false
-            menu.addItem(empty)
-        } else {
-            for entry in history.prefix(5) {
-                let item = NSMenuItem(title: "✓  \(entry.name)", action: nil, keyEquivalent: "")
-                item.isEnabled = false
-                item.toolTip   = entry.path
-                menu.addItem(item)
-            }
-            if history.count > 5 {
-                let more = NSMenuItem(title: "  + \(history.count - 5) more…", action: nil, keyEquivalent: "")
-                more.isEnabled = false
-                menu.addItem(more)
-            }
-        }
-
-        menu.addItem(.separator())
-        let settingsItem = NSMenuItem(title: "History & Settings…",
-                                      action: #selector(openSettings), keyEquivalent: ",")
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Spotlight Off",
-                                action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        statusItem.menu = menu
-    }
-
-    @objc func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-}
-
-// MARK: - Drive Monitor
-
-class DriveMonitor: ObservableObject {
-    @Published var history: [DriveEntry] = []
-    var onHistoryChanged: (() -> Void)?
-
-    private let historyKey = "spotlightoff.history"
-
-    init() { loadHistory() }
-
-    func start() {
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(volumeMounted(_:)),
-            name: NSWorkspace.didMountNotification,
-            object: nil
+        let hosting = NSHostingView(rootView: SettingsView(monitor: driveMonitor))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
         )
-    }
-
-    // MARK: Volume Mounted
-
-    @objc private func volumeMounted(_ notification: NSNotification) {
-        guard let path = notification.userInfo?["NSDevicePath"] as? String else { return }
-        LogStore.shared.log("Volume mounted: \(path)")
-
-        let url = URL(fileURLWithPath: path)
-        guard isExternalVolume(url) else {
-            LogStore.shared.log("Skipped (not an external volume): \(path)")
-            return
-        }
-
-        // On macOS Big Sur+, /Volumes/X is a firmlink to /System/Volumes/Data/Volumes/X.
-        // These are NOT symlinks — realpath() and canonicalPath don't follow firmlinks.
-        // We construct the real path manually, which is always predictable.
-        let resolvedPath: String
-        if path.hasPrefix("/Volumes/") {
-            let candidate = "/System/Volumes/Data" + path
-            if FileManager.default.fileExists(atPath: candidate) {
-                resolvedPath = candidate
-            } else {
-                resolvedPath = path
-            }
-        } else {
-            resolvedPath = path
-        }
-        LogStore.shared.log("Resolved path: \(resolvedPath)")
-
-        let name = url.lastPathComponent.isEmpty ? "External Drive" : url.lastPathComponent
-        LogStore.shared.log("Accepted — scheduling disable for: \(name)")
-
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            self?.handleVolume(path: resolvedPath, name: name)
-        }
-    }
-
-    // MARK: Volume Filtering
-    // Accepts any local, non-internal, non-root volume.
-    // We intentionally do NOT require volumeIsRemovable because many
-    // bus-powered and SSD external drives don't set that flag.
-
-    private func isExternalVolume(_ url: URL) -> Bool {
-        guard let vals = try? url.resourceValues(forKeys: [
-            .volumeIsRootFileSystemKey,
-            .volumeIsInternalKey,
-            .volumeIsLocalKey,
-            .volumeIsRemovableKey
-        ]) else {
-            LogStore.shared.log("Could not read volume flags for \(url.path)")
-            return false
-        }
-
-        let isRoot      = vals.volumeIsRootFileSystem ?? false
-        let isInternal  = vals.volumeIsInternal       ?? false
-        let isLocal     = vals.volumeIsLocal           ?? false
-        let isRemovable = vals.volumeIsRemovable       ?? false
-
-        LogStore.shared.log("Flags — root:\(isRoot) internal:\(isInternal) local:\(isLocal) removable:\(isRemovable)")
-
-        if isRoot   { return false }
-        if !isLocal { return false }   // skip network volumes
-        return true
-    }
-
-    // MARK: Spotlight Check & Disable
-
-    private func handleVolume(path: String, name: String) {
-        let enabled = isIndexingEnabled(path: path)
-        LogStore.shared.log("Indexing enabled for '\(name)': \(enabled)")
-
-        guard enabled else {
-            LogStore.shared.log("Already disabled — nothing to do.")
-            return
-        }
-
-        let ok = disableIndexing(path: path)
-        LogStore.shared.log("Disable succeeded: \(ok)")
-
-        if ok {
-            DispatchQueue.main.async { [weak self] in
-                self?.addToHistory(name: name, path: path)
-            }
-        }
-    }
-
-    private func isIndexingEnabled(path: String) -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/mdutil")
-        p.arguments     = ["-s", path]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError  = pipe
-        do {
-            try p.run()
-            p.waitUntilExit()
-            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            LogStore.shared.log("mdutil -s: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
-            return !out.lowercased().contains("disabled")
-        } catch {
-            LogStore.shared.log("mdutil -s error: \(error)")
-            return true
-        }
-    }
-
-    private func disableIndexing(path: String) -> Bool {
-        // mdutil -i off only accepts the /Volumes/X form, not the firmlink target.
-        // Convert back from /System/Volumes/Data/Volumes/X if needed.
-        let volumesPath: String
-        if path.hasPrefix("/System/Volumes/Data/Volumes/") {
-            volumesPath = String(path.dropFirst("/System/Volumes/Data".count))
-        } else {
-            volumesPath = path
-        }
-        LogStore.shared.log("Using path for mdutil: \(volumesPath)")
-
-        // First try running mdutil directly without admin — works if app has disk access
-        if runMdutil(path: volumesPath) { return true }
-
-        // Fall back to osascript with administrator privileges
-        return runMdutilAsAdmin(path: volumesPath)
-    }
-
-    private func runMdutil(path: String) -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/mdutil")
-        p.arguments = ["-i", "off", path]
-        let outPipe = Pipe(); let errPipe = Pipe()
-        p.standardOutput = outPipe; p.standardError = errPipe
-        do {
-            try p.run(); p.waitUntilExit()
-            let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            LogStore.shared.log("mdutil direct out: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
-            LogStore.shared.log("mdutil direct err: \(err.trimmingCharacters(in: .whitespacesAndNewlines))")
-            LogStore.shared.log("mdutil direct exit: \(p.terminationStatus)")
-            let combined = (out + err).lowercased()
-            return p.terminationStatus == 0 && !combined.contains("error") && !combined.contains("could not")
-        } catch {
-            LogStore.shared.log("mdutil direct threw: \(error)")
-            return false
-        }
-    }
-
-    private func runMdutilAsAdmin(path: String) -> Bool {
-        let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
-        let script = "do shell script (\"/usr/bin/mdutil -i off \" & quoted form of \"\(escaped)\") with administrator privileges"
-        LogStore.shared.log("Trying osascript admin for: \(path)")
-
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", script]
-        let outPipe = Pipe(); let errPipe = Pipe()
-        p.standardOutput = outPipe; p.standardError = errPipe
-        do {
-            try p.run(); p.waitUntilExit()
-            let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            LogStore.shared.log("osascript out: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
-            LogStore.shared.log("osascript err: \(err.trimmingCharacters(in: .whitespacesAndNewlines))")
-            LogStore.shared.log("osascript exit: \(p.terminationStatus)")
-            let combined = (out + err).lowercased()
-            return p.terminationStatus == 0 && !combined.contains("error") && !combined.contains("could not")
-        } catch {
-            LogStore.shared.log("osascript threw: \(error)")
-            return false
-        }
-    }
-
-    // MARK: History
-
-    private func addToHistory(name: String, path: String) {
-        history.removeAll { $0.path == path }
-        history.insert(DriveEntry(name: name, path: path), at: 0)
-        if history.count > 100 { history = Array(history.prefix(100)) }
-        saveHistory()
-        onHistoryChanged?()
-    }
-
-    func removeEntries(at offsets: IndexSet) {
-        history.remove(atOffsets: offsets)
-        saveHistory()
-        onHistoryChanged?()
-    }
-
-    func clearHistory() {
-        history.removeAll()
-        saveHistory()
-        onHistoryChanged?()
-    }
-
-    private func saveHistory() {
-        if let data = try? JSONEncoder().encode(history) {
-            UserDefaults.standard.set(data, forKey: historyKey)
-        }
-    }
-
-    private func loadHistory() {
-        guard let data    = UserDefaults.standard.data(forKey: historyKey),
-              let decoded = try? JSONDecoder().decode([DriveEntry].self, from: data)
-        else { return }
-        history = decoded
+        window.title = "Spotlight Off"
+        window.contentView = hosting
+        window.center()
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        fallbackSettingsWindow = window
     }
 }
 
-// MARK: - Settings View
+// MARK: - Menu Bar View
 
-struct SettingsView: View {
+struct MenuBarView: View {
     @ObservedObject var monitor: DriveMonitor
-    @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    @Environment(\.openSettings) private var openSettings
 
-    private let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-
-            // Header
-            HStack(spacing: 12) {
-                Image(systemName: "externaldrive.badge.xmark")
-                    .font(.title2)
-                    .foregroundColor(.accentColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Spotlight Off")
-                        .font(.headline)
-                    Text("Automatically disables Spotlight indexing on external drives")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-            }
-            .padding()
-
-            Divider()
-
-            // Settings
-            VStack(alignment: .leading, spacing: 10) {
-                Text("SETTINGS")
-                    .font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
-
-                Toggle("Launch at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { enabled in
-                        do {
-                            if enabled {
-                                try SMAppService.mainApp.register()
-                            } else {
-                                try SMAppService.mainApp.unregister()
-                            }
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
-                        } catch {
-                            LogStore.shared.log("Launch at login error: \(error)")
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
-                        }
-                    }
-            }
-            .padding()
-
-            Divider()
-
-            // History header
-            HStack {
-                Text("PROCESSED DRIVES")
-                    .font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
-                Spacer()
-                if !monitor.history.isEmpty {
-                    Button("Clear All") { monitor.clearHistory() }
-                        .foregroundColor(.red)
-                        .buttonStyle(.borderless)
-                        .font(.caption).fontWeight(.semibold)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
-
-            // History list
-            if monitor.history.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "externaldrive")
-                        .font(.system(size: 32))
-                        .foregroundColor(.secondary.opacity(0.4))
-                    Text("No drives processed yet")
-                        .foregroundColor(.secondary)
-                        .font(.subheadline)
-                    Text("Connect an external drive and Spotlight Off\nwill disable indexing automatically.")
-                        .foregroundColor(.secondary.opacity(0.7))
-                        .font(.caption)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-            } else {
-                List {
-                    ForEach(monitor.history) { entry in
-                        HStack(spacing: 10) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.name)
-                                    .fontWeight(.medium)
-                                Text(entry.path)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            Spacer()
-                            Text(dateFormatter.string(from: entry.date))
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 2)
-                    }
-                    .onDelete { offsets in monitor.removeEntries(at: offsets) }
-                }
-                .frame(height: 220)
-
-                Text("Select an entry and press Delete to remove it, or use Clear All.")
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
-            }
-
-            Divider()
-
-            Text("Administrator approval is required the first time a drive is processed.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding()
-
-            Divider()
-
-            // Activity Log
-            HStack {
-                Text("ACTIVITY LOG")
-                    .font(.caption).fontWeight(.semibold).foregroundColor(.secondary)
-                Spacer()
-                Button("Clear") { LogStore.shared.entries.removeAll() }
-                    .buttonStyle(.borderless)
-                    .font(.caption).fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
-
-            LogView()
-                .frame(height: 120)
-                .padding(.bottom, 8)
+    /// Connected drives with Spotlight disabled — listed in order of last seen.
+    private var activeDrives: [DriveEntry] {
+        monitor.history.filter {
+            monitor.mountedPaths.contains($0.mountPath) &&
+            !monitor.exclusions.contains($0.mountPath)
         }
-        .frame(width: 440)
     }
-}
 
-// MARK: - Log View
+    /// Connected drives on the exclusion list — Spotlight is enabled on these.
+    private var excludedConnected: [String] {
+        monitor.mountedPaths.filter { monitor.exclusions.contains($0) }.sorted()
+    }
 
-struct LogView: View {
-    @ObservedObject var store = LogStore.shared
+    /// Returns a display name for a mount path, falling back to the last path component.
+    private func driveName(for mountPath: String) -> String {
+        monitor.history.first(where: { $0.mountPath == mountPath })?.name
+            ?? URL(fileURLWithPath: mountPath).lastPathComponent
+    }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(store.entries.enumerated()), id: \.offset) { index, line in
-                        Text(line)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(index)
+        Text("Spotlight Off \u{2014} Active")
+            .foregroundStyle(.secondary)
+
+        Divider()
+
+        if activeDrives.isEmpty && excludedConnected.isEmpty {
+            Text("No drives connected")
+                .foregroundStyle(.secondary)
+        } else {
+            // Active drives — Spotlight is disabled on these.
+            ForEach(activeDrives.prefix(5)) { entry in
+                Menu {
+                    Button("Exclude This Drive") {
+                        monitor.addExclusion(mountPath: entry.mountPath)
                     }
+                } label: {
+                    Label(entry.name, systemImage: "checkmark.circle.fill")
                 }
-                .padding(8)
             }
-            .background(Color(NSColor.textBackgroundColor).opacity(0.5))
-            .onChange(of: store.entries.count) { _ in
-                if let last = store.entries.indices.last {
-                    proxy.scrollTo(last, anchor: .bottom)
+            if activeDrives.count > 5 {
+                Text("  + \(activeDrives.count - 5) more\u{2026}")
+                    .foregroundStyle(.secondary)
+            }
+
+            // Excluded drives that are currently connected — Spotlight is on.
+            if !excludedConnected.isEmpty {
+                if !activeDrives.isEmpty { Divider() }
+                ForEach(excludedConnected, id: \.self) { path in
+                    Menu {
+                        Button("Remove Exclusion") {
+                            monitor.removeExclusion(path)
+                        }
+                    } label: {
+                        Label(driveName(for: path), systemImage: "nosign")
+                    }
                 }
             }
         }
+
+        Divider()
+
+        Button("History & Settings\u{2026}") {
+            openSettings()
+            // Defer to next run-loop tick so the window exists before we raise it.
+            // orderFrontRegardless is needed because this app runs as .accessory.
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows
+                    .filter { $0.canBecomeKey && !($0 is NSPanel) }
+                    .forEach {
+                        $0.level = .floating
+                        $0.makeKeyAndOrderFront(nil)
+                        $0.orderFrontRegardless()
+                    }
+                // Guard against MenuBarExtra scene lifecycle failure (observed on macOS 26
+                // Tahoe): if no key-capable window is visible after a short delay, fall
+                // back to opening the settings window directly via NSWindow.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    let hasVisible = NSApp.windows.contains { $0.canBecomeKey && $0.isVisible && !($0 is NSPanel) }
+                    if !hasVisible {
+                        (NSApp.delegate as? AppDelegate)?.openSettingsDirectly()
+                    }
+                }
+            }
+        }
+        .keyboardShortcut(",")
+
+        Divider()
+
+        Button("Quit Spotlight Off") {
+            NSApp.terminate(nil)
+        }
+        .keyboardShortcut("q")
     }
 }
