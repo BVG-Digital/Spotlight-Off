@@ -10,6 +10,8 @@
   ![Swift](https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift)
   ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
+  [⬇️ Download v1.1.0](https://github.com/BVG-Digital/Spotlight-Off/releases/latest)
+
 </div>
 
 ---
