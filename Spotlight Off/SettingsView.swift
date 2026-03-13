@@ -237,13 +237,32 @@ private struct LogTabView: View {
                     .frame(minHeight: 240)
                     .listRowInsets(EdgeInsets())
             } header: {
-                HStack {
+                HStack(spacing: 6) {
                     Text("Activity Log")
                     Spacer()
+                    // Copy All — utility action, grey, disabled when log is empty.
+                    Button("Copy All") {
+                        let text = LogStore.shared.entries
+                            .map(\.text)
+                            .joined(separator: "\n")
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .disabled(LogStore.shared.entries.isEmpty)
+
+                    // Separator between utility and destructive actions.
+                    Divider()
+                        .frame(height: 10)
+
+                    // Clear — destructive, red, matching "Clear All" in Drives tab.
                     Button("Clear") { LogStore.shared.clear() }
                         .buttonStyle(.borderless)
                         .font(.caption).fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.red)
+                        .disabled(LogStore.shared.entries.isEmpty)
                 }
             }
         }

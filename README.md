@@ -39,6 +39,8 @@ Every time you plug in an external drive, macOS quietly starts building a Spotli
 ## Screenshots
 
 <div align="center">
+  <img src="screenshot-welcome.png" width="480" alt="Welcome and setup guide" />
+  <br/><br/>
   <img src="screenshot-menubar.png" width="280" alt="Menu bar dropdown" />
   <br/><br/>
   <img src="screenshot-general.png" width="480" alt="General settings tab" />
