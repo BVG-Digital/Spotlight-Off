@@ -10,7 +10,11 @@
   ![Swift](https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift)
   ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
-  [⬇️ Download v1.1.0](https://github.com/BVG-Digital/Spotlight-Off/releases/latest)
+  [⬇️ Download v1.1.1 — Spotlight Off.zip](https://github.com/BVG-Digital/Spotlight-Off/releases/download/v1.1.1/Spotlight.Off.zip)
+
+  _No Xcode required. Unzip, move to Applications, and run._
+
+  [All releases →](https://github.com/BVG-Digital/Spotlight-Off/releases)
 
 </div>
 
@@ -94,7 +98,7 @@ No paid Apple Developer account is required to build and run locally.
 When a volume mounts, Spotlight Off:
 
 1. Reads the volume's metadata flags to confirm it's a local, non-root external volume
-2. Waits 1.5 seconds for the volume to fully settle
+2. Waits 2.5 seconds for the volume to fully settle
 3. Runs `mdutil -s` to check whether indexing is currently enabled
 4. If enabled, runs `mdutil -i off` via `osascript` with administrator privileges
 5. Records the result in the persistent history log

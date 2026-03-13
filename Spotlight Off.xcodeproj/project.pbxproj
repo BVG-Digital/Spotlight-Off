@@ -16,6 +16,7 @@
 		AA39C7D22F5B6C23002E8AB0 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA39C7D12F5B6C23002E8AB0 /* Models.swift */; };
 		AA39C7D42F5B6C23002E8AB0 /* DriveMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA39C7D32F5B6C23002E8AB0 /* DriveMonitor.swift */; };
 		AA39C7D62F5B6C23002E8AB0 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA39C7D52F5B6C23002E8AB0 /* SettingsView.swift */; };
+		AA39C7D82F5B6C23002E8AB0 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA39C7D72F5B6C23002E8AB0 /* WelcomeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +50,7 @@
 		AA39C7D12F5B6C23002E8AB0 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AA39C7D32F5B6C23002E8AB0 /* DriveMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveMonitor.swift; sourceTree = "<group>"; };
 		AA39C7D52F5B6C23002E8AB0 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA39C7D72F5B6C23002E8AB0 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -103,6 +105,7 @@
 				AA39C7D12F5B6C23002E8AB0 /* Models.swift */,
 				AA39C7D32F5B6C23002E8AB0 /* DriveMonitor.swift */,
 				AA39C7D52F5B6C23002E8AB0 /* SettingsView.swift */,
+				AA39C7D72F5B6C23002E8AB0 /* WelcomeView.swift */,
 				2339C7AA2F5B6C23002E8AB0 /* Assets.xcassets */,
 				2339C7AF2F5B6C23002E8AB0 /* Spotlight_Off.entitlements */,
 				2339C7AC2F5B6C23002E8AB0 /* Preview Content */,
@@ -199,7 +202,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1520;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					2339C7A22F5B6C22002E8AB0 = {
 						CreatedOnToolsVersion = 15.2;
@@ -269,6 +272,7 @@
 				AA39C7D22F5B6C23002E8AB0 /* Models.swift in Sources */,
 				AA39C7D42F5B6C23002E8AB0 /* DriveMonitor.swift in Sources */,
 				AA39C7D62F5B6C23002E8AB0 /* SettingsView.swift in Sources */,
+				AA39C7D82F5B6C23002E8AB0 /* WelcomeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -341,6 +345,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = NQ5UM3LXX2;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -406,6 +411,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = NQ5UM3LXX2;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -433,15 +439,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "Spotlight Off/Spotlight_Off.entitlements";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Spotlight Off/Preview Content\"";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSUserNotificationsUsageDescription = "Spotlight Off notifies you when Spotlight indexing is disabled on an external drive.";
@@ -451,7 +458,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "tech.thedigi.SpotlightOff";
+				PRODUCT_BUNDLE_IDENTIFIER = tech.thedigi.SpotlightOff;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -464,15 +471,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "Spotlight Off/Spotlight_Off.entitlements";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Spotlight Off/Preview Content\"";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSUserNotificationsUsageDescription = "Spotlight Off notifies you when Spotlight indexing is disabled on an external drive.";
@@ -482,7 +490,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "tech.thedigi.SpotlightOff";
+				PRODUCT_BUNDLE_IDENTIFIER = tech.thedigi.SpotlightOff;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -493,13 +501,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "tech.thedigi.SpotlightOffTests";
+				PRODUCT_BUNDLE_IDENTIFIER = tech.thedigi.SpotlightOffTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -511,13 +520,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "tech.thedigi.SpotlightOffTests";
+				PRODUCT_BUNDLE_IDENTIFIER = tech.thedigi.SpotlightOffTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -528,12 +538,13 @@
 		2339C7CF2F5B6C23002E8AB0 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "tech.thedigi.SpotlightOffUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = tech.thedigi.SpotlightOffUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -544,12 +555,13 @@
 		2339C7D02F5B6C23002E8AB0 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "tech.thedigi.SpotlightOffUITests";
+				PRODUCT_BUNDLE_IDENTIFIER = tech.thedigi.SpotlightOffUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;

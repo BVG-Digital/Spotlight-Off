@@ -72,6 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // is unreliable. Kept alive (isReleasedWhenClosed = false) so it can be
     // raised rather than recreated on subsequent calls.
     private var fallbackSettingsWindow: NSWindow?
+    private var welcomeWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -79,6 +80,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Scan volumes already mounted before the app started (e.g. after a restart).
         driveMonitor.scanMountedVolumes()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
+        // Show the welcome screen on first launch.
+        if !UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
+            openWelcome()
+        }
+    }
+
+    func openWelcome() {
+        if let window = welcomeWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let hosting = NSHostingView(rootView: WelcomeView {
+            self.welcomeWindow?.close()
+            UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+        })
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 580),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Welcome to Spotlight Off"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.contentView = hosting
+        window.center()
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        welcomeWindow = window
     }
 
     /// Opens the settings window directly via NSWindow, bypassing the SwiftUI
@@ -177,6 +212,10 @@ struct MenuBarView: View {
         }
 
         Divider()
+
+        Button("Setup Guide\u{2026}") {
+            (NSApp.delegate as? AppDelegate)?.openWelcome()
+        }
 
         Button("History & Settings\u{2026}") {
             openSettings()

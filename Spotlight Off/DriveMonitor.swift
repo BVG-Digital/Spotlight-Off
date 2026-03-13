@@ -249,7 +249,7 @@ class DriveMonitor: ObservableObject {
         LogStore.shared.log("External drive connected: \u{201C}\(name)\u{201D} \u{2014} disabling Spotlight indexing\u{2026}")
 
         Task.detached(priority: .utility) { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 s mount settling delay
+            try? await Task.sleep(nanoseconds: 2_500_000_000) // 2.5 s mount settling delay
             await self?.handleVolume(path: deep, name: name, mountPath: mountPath)
         }
     }
