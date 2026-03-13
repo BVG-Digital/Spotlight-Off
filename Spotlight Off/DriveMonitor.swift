@@ -28,6 +28,9 @@
 //   path (/Volumes/X) is needed for exclusion checks and deduplication; the
 //   resolved path (/System/Volumes/Data/Volumes/X) is needed for mdutil -s.
 //
+// • Disk image volumes (.dmg, .sparsebundle) are filtered out via DiskArbitration
+//   so that volumes temporarily mounted by apps like ChronoSync are never processed.
+//
 // • mountedPaths.insert is now called before the exclusion guard in volumeMounted
 //   so excluded drives are still tracked as connected. This lets the menu bar
 //   display excluded drives and offer to remove their exclusion directly.
@@ -53,6 +56,7 @@
 //   replacing the upstream's silent-on-failure behaviour.
 
 import AppKit
+import DiskArbitration
 import SwiftUI
 import UserNotifications
 
@@ -257,9 +261,12 @@ class DriveMonitor: ObservableObject {
     }
 
     // MARK: - Volume Filtering
-    // Accepts any local, non-internal, non-root volume.
+    // Accepts any local, non-internal, non-root, non-disk-image volume.
     // volumeIsRemovable is intentionally not checked — many bus-powered and
     // SSD external drives don't set that flag.
+    //
+    // Disk images (.dmg, .sparsebundle) are explicitly excluded via DiskArbitration
+    // so that volumes temporarily mounted by apps like ChronoSync are never processed.
 
     private func isExternalVolume(_ url: URL) -> Bool {
         guard let vals = try? url.resourceValues(forKeys: [
@@ -278,7 +285,19 @@ class DriveMonitor: ObservableObject {
         if isRoot     { return false }
         if isInternal { return false }
         if !isLocal   { return false }
+        if isDiskImageVolume(url) { return false }
         return true
+    }
+
+    /// Returns true if the volume is backed by a disk image (.dmg, .sparsebundle, etc.)
+    /// rather than a physical device. Uses DiskArbitration to read the device protocol.
+    private func isDiskImageVolume(_ url: URL) -> Bool {
+        guard let session = DASessionCreate(kCFAllocatorDefault),
+              let disk    = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL),
+              let desc    = DADiskCopyDescription(disk) as? [String: AnyObject]
+        else { return false }
+        let proto = desc[kDADiskDescriptionDeviceProtocolKey as String] as? String
+        return proto == "Disk Image"
     }
 
     // MARK: - Spotlight Check & Disable
