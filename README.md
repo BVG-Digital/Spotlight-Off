@@ -57,6 +57,8 @@ Every time you plug in an external drive, macOS quietly starts building a Spotli
 
 > **macOS 26 Tahoe note:** The app has been tested and works on macOS 26.3.1. Due to changes in how Tahoe handles SwiftUI `MenuBarExtra` scenes, you may see a harmless `[NSStatusItemView] No matching scene to invalidate` message in the system log. This does not affect functionality.
 
+> **Upgrading from a previous version?** macOS binds Full Disk Access grants to a specific app binary. After replacing the app, you may need to remove and re-add it in System Settings → Privacy & Security → Full Disk Access: click the `−` button to remove the old entry, then click `+` to add the newly installed version.
+
 ---
 
 ## Building from source
