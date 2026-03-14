@@ -31,12 +31,19 @@ struct WelcomeView: View {
 
     private var allComplete: Bool { hasFDA && launchAtLogin }
 
-    /// Checks whether Full Disk Access has been granted by attempting to read
-    /// the TCC database, which is only readable with FDA.
+    /// Checks whether Full Disk Access has been granted.
+    /// Tries two protected locations — the system TCC database and the
+    /// per-user TCC database.  Either being readable confirms FDA.
     private static func checkFDA() -> Bool {
-        FileManager.default.isReadableFile(
-            atPath: "/Library/Application Support/com.apple.TCC/TCC.db"
-        )
+        let fm = FileManager.default
+        // System-level TCC database (requires FDA)
+        if fm.isReadableFile(atPath: "/Library/Application Support/com.apple.TCC/TCC.db") {
+            return true
+        }
+        // Per-user TCC database (also requires FDA, and present on all macOS 14+)
+        let userTCC = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
+        return fm.isReadableFile(atPath: userTCC)
     }
 
     /// Starts a gentle repeating pulse on the Get Started button to draw
