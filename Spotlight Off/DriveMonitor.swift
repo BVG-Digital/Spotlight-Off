@@ -384,7 +384,12 @@ class DriveMonitor: ObservableObject {
         let trimmed  = combined.trimmingCharacters(in: .whitespacesAndNewlines)
         // Strip the firmlink prefix (/System/Volumes/Data) from the mdutil output
         // so the logged path is the familiar /Volumes/… form, not the deep path.
-        let display  = trimmed.replacingOccurrences(of: "/System/Volumes/Data/Volumes/", with: "/Volumes/")
+        let display  = trimmed
+            .replacingOccurrences(of: "/System/Volumes/Data/Volumes/", with: "/Volumes/")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
         LogStore.shared.log("mdutil -s: \(display)")
         // kMDConfigSearchLevelTransitioning means Spotlight is still initialising
         // on a freshly mounted drive. Treat as enabled and proceed to disable.
