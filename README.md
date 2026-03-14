@@ -10,7 +10,7 @@
   ![Swift](https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift)
   ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
-  [⬇️ Download v1.1.2 — Spotlight Off.zip](https://github.com/BVG-Digital/Spotlight-Off/releases/download/v1.1.2/Spotlight.Off.zip)
+  [⬇️ Download v1.1.2 — Spotlight Off.zip](https://github.com/BVG-Digital/Spotlight-Off/releases/download/v1.1.2/Spotlight-Off.zip)
 
   _No Xcode required. Unzip, move to Applications, and run._
 
