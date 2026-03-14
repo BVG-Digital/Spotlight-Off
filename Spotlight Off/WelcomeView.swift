@@ -27,6 +27,9 @@ struct WelcomeView: View {
 
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var hasFDA: Bool = false
+    @State private var buttonPulse = false
+
+    private var allComplete: Bool { hasFDA && launchAtLogin }
 
     /// Checks whether Full Disk Access has been granted by attempting to read
     /// the TCC database, which is only readable with FDA.
@@ -34,6 +37,14 @@ struct WelcomeView: View {
         FileManager.default.isReadableFile(
             atPath: "/Library/Application Support/com.apple.TCC/TCC.db"
         )
+    }
+
+    /// Starts a gentle repeating pulse on the Get Started button to draw
+    /// attention to it once all setup steps are complete.
+    private func startPulse() {
+        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+            buttonPulse = true
+        }
     }
 
     /// Computed binding so toggling here updates SMAppService immediately,
@@ -106,11 +117,17 @@ struct WelcomeView: View {
             }
         }
         .frame(width: 460, height: 580)
-        .onAppear { hasFDA = Self.checkFDA() }
+        .onAppear {
+            hasFDA = Self.checkFDA()
+            if allComplete { startPulse() }
+        }
         // Re-check when the user returns from System Settings.
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)
         ) { _ in hasFDA = Self.checkFDA() }
+        .onChange(of: allComplete) { _, complete in
+            if complete { startPulse() } else { buttonPulse = false }
+        }
     }
 
     // MARK: - Header
@@ -154,7 +171,8 @@ struct WelcomeView: View {
                 description: "Keeps Spotlight Off active in your menu bar so every drive is covered from the moment you log in.",
                 actionLabel: nil,
                 actionURL: nil,
-                toggleBinding: launchAtLoginBinding
+                toggleBinding: launchAtLoginBinding,
+                isComplete: launchAtLogin
             )
             stepDivider
             SetupStepRow(
@@ -162,7 +180,8 @@ struct WelcomeView: View {
                 title: "Ready to go",
                 description: "Plug in any external drive — Spotlight Off silently disables indexing in the background. No further setup needed.",
                 actionLabel: nil,
-                actionURL: nil
+                actionURL: nil,
+                isComplete: hasFDA && launchAtLogin
             )
         }
         .glassCard()
@@ -187,39 +206,56 @@ struct WelcomeView: View {
 
     @ViewBuilder
     private var getStartedButton: some View {
+        let buttonTint = Color(red: 0.20, green: 0.30, blue: 0.50).opacity(0.55)
+
         if #available(macOS 26, *) {
             Button(action: onDismiss) {
-                Text("Get Started")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
+                HStack(spacing: 8) {
+                    if allComplete {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                    Text(allComplete ? "You're all set" : "Get Started")
+                        .font(.system(size: 15, weight: .semibold))
+                        .animation(nil, value: allComplete)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
             }
-            // Muted midnight blue-grey tint — glass shows the background
-            // gradient through rather than being a flat solid colour.
-            .glassEffect(
-                .regular.tint(Color(red: 0.20, green: 0.30, blue: 0.50).opacity(0.55)),
-                in: RoundedRectangle(cornerRadius: 10)
-            )
+            .glassEffect(.regular.tint(buttonTint), in: RoundedRectangle(cornerRadius: 10))
             .foregroundStyle(.white)
+            .scaleEffect(buttonPulse ? 1.018 : 1.0)
+            .animation(.easeInOut(duration: 0.25), value: allComplete)
         } else {
             Button(action: onDismiss) {
-                Text("Get Started")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.ultraThinMaterial)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(red: 0.20, green: 0.30, blue: 0.50).opacity(0.45))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-                            )
-                    )
+                HStack(spacing: 8) {
+                    if allComplete {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                    Text(allComplete ? "You're all set" : "Get Started")
+                        .font(.system(size: 15, weight: .semibold))
+                        .animation(nil, value: allComplete)
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(red: 0.20, green: 0.30, blue: 0.50).opacity(0.45))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                        )
+                )
+                .scaleEffect(buttonPulse ? 1.018 : 1.0)
+                .animation(.easeInOut(duration: 0.25), value: allComplete)
             }
             .buttonStyle(.plain)
         }
