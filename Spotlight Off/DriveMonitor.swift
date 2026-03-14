@@ -138,11 +138,12 @@ class DriveMonitor: ObservableObject {
             }
             guard !inFlight.contains(mountPath) else { continue }
             inFlight.insert(mountPath)
-            let deep = resolvedPath(for: mountPath)
+            let deep   = resolvedPath(for: mountPath)
+            let format = Self.volumeFormat(for: url)
             LogStore.shared.log("External drive \u{201C}\(name)\u{201D} detected \u{2014} queuing for processing\u{2026}")
             queued += 1
             Task.detached(priority: .utility) { [weak self] in
-                await self?.handleVolume(path: deep, name: name, mountPath: mountPath)
+                await self?.handleVolume(path: deep, name: name, mountPath: mountPath, format: format)
             }
         }
 
@@ -158,6 +159,21 @@ class DriveMonitor: ObservableObject {
     /// Human-readable name for a volume URL.
     static func volumeName(for url: URL) -> String {
         url.lastPathComponent.isEmpty ? "External Drive" : url.lastPathComponent
+    }
+
+    /// Returns a normalized filesystem format string for a volume URL (e.g. "APFS", "ExFAT", "HFS+").
+    static func volumeFormat(for url: URL) -> String? {
+        guard let raw = (try? url.resourceValues(forKeys: [.volumeTypeNameKey]))?.volumeTypeName else { return nil }
+        // Normalize known values to their canonical display form.
+        switch raw.lowercased() {
+        case "hfs":           return "HFS+"
+        case "msdos":         return "FAT32"
+        case "exfat":         return "ExFAT"
+        case "apfs":          return "APFS"
+        case "ntfs":          return "NTFS"
+        case "udf":           return "UDF"
+        default:              return raw.uppercased()
+        }
     }
 
     // MARK: - Firmlink Helpers
@@ -245,12 +261,13 @@ class DriveMonitor: ObservableObject {
         }
 
         inFlight.insert(mountPath)
-        let deep = resolvedPath(for: mountPath)
+        let deep   = resolvedPath(for: mountPath)
+        let format = Self.volumeFormat(for: url)
         LogStore.shared.log("External drive connected: \u{201C}\(name)\u{201D} \u{2014} disabling Spotlight indexing\u{2026}")
 
         Task.detached(priority: .utility) { [weak self] in
             try? await Task.sleep(nanoseconds: 2_500_000_000) // 2.5 s mount settling delay
-            await self?.handleVolume(path: deep, name: name, mountPath: mountPath)
+            await self?.handleVolume(path: deep, name: name, mountPath: mountPath, format: format)
         }
     }
 
@@ -302,7 +319,7 @@ class DriveMonitor: ObservableObject {
 
     // MARK: - Spotlight Check & Disable
 
-    private func handleVolume(path: String, name: String, mountPath: String) async {
+    private func handleVolume(path: String, name: String, mountPath: String, format: String? = nil) async {
         // Always remove from in-flight when done — we're on MainActor so no dispatch needed.
         defer { inFlight.remove(mountPath) }
 
@@ -314,7 +331,7 @@ class DriveMonitor: ObservableObject {
             // Spotlight was already disabled — no action needed, but still record
             // the drive so the Drives tab reflects all verified-disabled drives.
             LogStore.shared.log("Spotlight indexing already disabled on \u{201C}\(name)\u{201D} \u{2014} no action required.")
-            addToHistory(name: name, path: path, mountPath: mountPath, status: .alreadyDisabled)
+            addToHistory(name: name, path: path, mountPath: mountPath, status: .alreadyDisabled, format: format)
             return
         }
 
@@ -323,7 +340,7 @@ class DriveMonitor: ObservableObject {
 
         // Record the outcome regardless of success — failed attempts appear in the
         // Drives tab with a red indicator so the user knows action is needed.
-        addToHistory(name: name, path: path, mountPath: mountPath, status: ok ? .disabled : .failed)
+        addToHistory(name: name, path: path, mountPath: mountPath, status: ok ? .disabled : .failed, format: format)
 
         if ok {
             AppState.shared.iconName = "externaldrive.badge.checkmark"
@@ -365,7 +382,10 @@ class DriveMonitor: ObservableObject {
         }
         let combined = readOutput(out) + readOutput(err)
         let trimmed  = combined.trimmingCharacters(in: .whitespacesAndNewlines)
-        LogStore.shared.log("mdutil -s: \(trimmed)")
+        // Strip the firmlink prefix (/System/Volumes/Data) from the mdutil output
+        // so the logged path is the familiar /Volumes/… form, not the deep path.
+        let display  = trimmed.replacingOccurrences(of: "/System/Volumes/Data/Volumes/", with: "/Volumes/")
+        LogStore.shared.log("mdutil -s: \(display)")
         // kMDConfigSearchLevelTransitioning means Spotlight is still initialising
         // on a freshly mounted drive. Treat as enabled and proceed to disable.
         if trimmed.lowercased().contains("transitioning") {
@@ -428,9 +448,9 @@ class DriveMonitor: ObservableObject {
 
     // MARK: - History
 
-    private func addToHistory(name: String, path: String, mountPath: String, status: DriveStatus = .disabled) {
+    private func addToHistory(name: String, path: String, mountPath: String, status: DriveStatus = .disabled, format: String? = nil) {
         history.removeAll { $0.path == path }
-        history.insert(DriveEntry(name: name, path: path, mountPath: mountPath, status: status), at: 0)
+        history.insert(DriveEntry(name: name, path: path, mountPath: mountPath, status: status, format: format), at: 0)
         if history.count > 100 { history = Array(history.prefix(100)) }
         saveHistory()
     }
@@ -494,12 +514,29 @@ class DriveMonitor: ObservableObject {
         // to a fresh mount without the exclusion. This means removing an exclusion
         // takes effect right away without requiring a remount.
         guard mountedPaths.contains(path), !inFlight.contains(path) else { return }
-        let name = Self.volumeName(for: URL(fileURLWithPath: path))
-        let deep = resolvedPath(for: path)
+        let url    = URL(fileURLWithPath: path)
+        let name   = Self.volumeName(for: url)
+        let deep   = resolvedPath(for: path)
+        let format = Self.volumeFormat(for: url)
         LogStore.shared.log("External drive \u{201C}\(name)\u{201D} is connected \u{2014} disabling Spotlight indexing\u{2026}")
         inFlight.insert(path)
         Task.detached(priority: .utility) { [weak self] in
-            await self?.handleVolume(path: deep, name: name, mountPath: path)
+            await self?.handleVolume(path: deep, name: name, mountPath: path, format: format)
+        }
+    }
+
+    // MARK: - Reprocess
+
+    /// Manually re-runs Spotlight disable on a drive that is currently mounted.
+    /// Only acts if the drive is connected and not already being processed.
+    func reprocess(entry: DriveEntry) {
+        guard mountedPaths.contains(entry.mountPath),
+              !inFlight.contains(entry.mountPath) else { return }
+        let deep = resolvedPath(for: entry.mountPath)
+        LogStore.shared.log("Manual re-process requested for \u{201C}\(entry.name)\u{201D}\u{2026}")
+        inFlight.insert(entry.mountPath)
+        Task.detached(priority: .utility) { [weak self] in
+            await self?.handleVolume(path: deep, name: entry.name, mountPath: entry.mountPath, format: entry.format)
         }
     }
 

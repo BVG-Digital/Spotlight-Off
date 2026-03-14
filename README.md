@@ -10,7 +10,7 @@
   ![Swift](https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift)
   ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
-  [⬇️ Download v1.1.1 — Spotlight Off.zip](https://github.com/BVG-Digital/Spotlight-Off/releases/download/v1.1.1/Spotlight.Off.zip)
+  [⬇️ Download v1.1.2 — Spotlight Off.zip](https://github.com/BVG-Digital/Spotlight-Off/releases/download/v1.1.2/Spotlight.Off.zip)
 
   _No Xcode required. Unzip, move to Applications, and run._
 
@@ -39,15 +39,13 @@ Every time you plug in an external drive, macOS quietly starts building a Spotli
 ## Screenshots
 
 <div align="center">
-  <img src="screenshot-welcome.png" width="480" alt="Welcome and setup guide" />
+  <img src="screenshot-welcome.png" width="460" alt="Welcome and setup guide" />
   <br/><br/>
-  <img src="screenshot-menubar.png" width="280" alt="Menu bar dropdown" />
+  <img src="screenshot-settings-general.png" width="520" alt="General settings tab" />
   <br/><br/>
-  <img src="screenshot-general.png" width="480" alt="General settings tab" />
+  <img src="screenshot-settings-drives.png" width="520" alt="Drives tab showing drive history" />
   <br/><br/>
-  <img src="screenshot-drives.png" width="480" alt="Drives tab showing drive history" />
-  <br/><br/>
-  <img src="screenshot-log.png" width="480" alt="Log tab showing activity log" />
+  <img src="screenshot-settings-log.png" width="520" alt="Log tab with color-coded activity" />
 </div>
 
 ---
@@ -105,7 +103,7 @@ When a volume mounts, Spotlight Off:
 4. If enabled, runs `mdutil -i off` via `osascript` with administrator privileges
 5. Records the result in the persistent history log
 
-All history is stored locally in `UserDefaults`. No network requests are ever made.
+All history is stored locally in `UserDefaults`. The only network request made is a single background call to the GitHub releases API on launch to check for updates — no data is sent.
 
 ---
 
@@ -115,6 +113,10 @@ All history is stored locally in `UserDefaults`. No network requests are ever ma
 - **Tabbed settings UI**: General, Drives, and Log tabs replace a single scrolling view
 - **Modern SwiftUI APIs**: `foregroundStyle` throughout, `Form` + `Section` with `.formStyle(.grouped)` for a native System Settings appearance
 - **Cleaner state management**: `LogStore` and `AppState` use `DispatchQueue.main.async` for safe UI updates without actor isolation conflicts
+- **Setup Guide**: Dark welcome/onboarding window with radial gradient background, accessible from the menu bar at any time
+- **Color-coded activity log**: Success lines in green, errors in red, verbose `mdutil` output dimmed; timestamp split for readability
+- **Copy All / Export log**: Copy all entries to clipboard (with visual feedback) or save to a `.txt` file via a sheet panel
+- **Unit test suite**: 33 tests covering `DriveEntry` Codable backward-compatibility, `DriveMonitor` state, `LogStore` capping, `AppDelegate` window lifecycle, and semantic version comparison
 
 ---
 

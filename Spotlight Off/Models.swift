@@ -57,17 +57,20 @@ struct DriveEntry: Codable, Identifiable, Equatable {
     let date: Date
     let status: DriveStatus
 
-    init(name: String, path: String, mountPath: String, status: DriveStatus = .disabled) {
+    let format: String?     // filesystem type e.g. "APFS", "ExFAT", "HFS+"
+
+    init(name: String, path: String, mountPath: String, status: DriveStatus = .disabled, format: String? = nil) {
         self.id        = UUID()
         self.name      = name
         self.path      = path
         self.mountPath = mountPath
         self.date      = Date()
         self.status    = status
+        self.format    = format
     }
 
-    // Backward-compatible decoder: entries saved before mountPath or status were added
-    // fall back to safe defaults (.disabled for status, path for mountPath).
+    // Backward-compatible decoder: entries saved before mountPath, status, or format
+    // were added fall back to safe defaults.
     init(from decoder: Decoder) throws {
         let c  = try decoder.container(keyedBy: CodingKeys.self)
         id        = try c.decode(UUID.self,   forKey: .id)
@@ -76,6 +79,7 @@ struct DriveEntry: Codable, Identifiable, Equatable {
         mountPath = try c.decodeIfPresent(String.self,      forKey: .mountPath) ?? path
         date      = try c.decode(Date.self,   forKey: .date)
         status    = try c.decodeIfPresent(DriveStatus.self, forKey: .status)    ?? .disabled
+        format    = try c.decodeIfPresent(String.self,      forKey: .format)
     }
 }
 
@@ -125,5 +129,6 @@ class LogStore: ObservableObject {
 /// Always mutated from @MainActor (DriveMonitor), so no extra marshalling needed.
 class AppState: ObservableObject {
     static let shared = AppState()
-    @Published var iconName = "externaldrive.badge.xmark"
+    @Published var iconName       = "externaldrive.badge.xmark"
+    @Published var updateAvailable: String? = nil   // non-nil tag name when a newer release exists
 }

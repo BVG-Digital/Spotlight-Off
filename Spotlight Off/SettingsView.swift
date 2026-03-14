@@ -35,25 +35,51 @@
 
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Settings View
 
 struct SettingsView: View {
     @ObservedObject var monitor: DriveMonitor
+    @State private var selectedTab = 0
 
     var body: some View {
-        TabView {
-            GeneralTabView(monitor: monitor)
-                .tabItem { Label("General", systemImage: "gearshape") }
+        ZStack {
+            // Greyscale midnight base — matches WelcomeView palette.
+            Color(white: 0.055).ignoresSafeArea()
 
-            DrivesTabView(monitor: monitor)
-                .tabItem { Label("Drives", systemImage: "externaldrive") }
+            // Subtle gradient blooms so Liquid Glass sections have something to refract.
+            GeometryReader { geo in
+                RadialGradient(
+                    colors: [Color(red: 0.25, green: 0.35, blue: 0.55).opacity(0.22), .clear],
+                    center: .init(x: 0.80, y: 0.05),
+                    startRadius: 0,
+                    endRadius: geo.size.width * 0.65
+                ).ignoresSafeArea()
+                RadialGradient(
+                    colors: [Color(red: 0.30, green: 0.20, blue: 0.45).opacity(0.12), .clear],
+                    center: .init(x: 0.10, y: 0.95),
+                    startRadius: 0,
+                    endRadius: geo.size.width * 0.55
+                ).ignoresSafeArea()
+            }
 
-            LogTabView()
-                .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
+            TabView(selection: $selectedTab) {
+                GeneralTabView(monitor: monitor)
+                    .tabItem { Label("General", systemImage: "gearshape") }
+                    .tag(0)
+
+                DrivesTabView(monitor: monitor)
+                    .tabItem { Label("Drives", systemImage: "externaldrive") }
+                    .tag(1)
+
+                LogTabView()
+                    .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
+                    .tag(2)
+            }
         }
         .frame(width: 500, height: 400)
-        .background(Color(NSColor.windowBackgroundColor))
+        .onAppear { selectedTab = 0 }
     }
 }
 
@@ -142,7 +168,6 @@ private struct GeneralTabView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .background(Color(NSColor.windowBackgroundColor))
         .padding(.top, 8)
     }
 }
@@ -167,8 +192,11 @@ private struct DrivesTabView: View {
                     ForEach(visibleHistory) { entry in
                         HistoryRowView(
                             entry: entry,
-                            onRemove: { monitor.removeEntry(entry) },
-                            onExclude: { monitor.addExclusion(mountPath: entry.mountPath) }
+                            onRemove:  { monitor.removeEntry(entry) },
+                            onExclude: { monitor.addExclusion(mountPath: entry.mountPath) },
+                            onRetry:   entry.status == .failed && monitor.mountedPaths.contains(entry.mountPath)
+                                           ? { monitor.reprocess(entry: entry) }
+                                           : nil
                         )
                     }
                 }
@@ -205,7 +233,6 @@ private struct DrivesTabView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .background(Color(NSColor.windowBackgroundColor))
         .padding(.top, 8)
     }
 
@@ -230,6 +257,9 @@ private struct DrivesTabView: View {
 // MARK: - Log Tab
 
 private struct LogTabView: View {
+    @State private var didCopy = false
+    @ObservedObject private var store = LogStore.shared
+
     var body: some View {
         Form {
             Section {
@@ -239,36 +269,71 @@ private struct LogTabView: View {
             } header: {
                 HStack(spacing: 6) {
                     Text("Activity Log")
+                    if !store.entries.isEmpty {
+                        Text("(\(store.entries.count))")
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer()
-                    // Copy All — utility action, grey, disabled when log is empty.
-                    Button("Copy All") {
+                    // Icon-only toolbar buttons — matching Console.app's style.
+                    // Tooltips (.help) provide labels on hover for accessibility.
+                    Button {
                         let text = LogStore.shared.entries
                             .map(\.text)
                             .joined(separator: "\n")
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(text, forType: .string)
+                        didCopy = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            didCopy = false
+                        }
+                    } label: {
+                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                            .foregroundStyle(didCopy ? Color.green : Color.secondary)
+                            .animation(.easeInOut(duration: 0.15), value: didCopy)
                     }
                     .buttonStyle(.borderless)
-                    .font(.caption).fontWeight(.semibold)
+                    .disabled(LogStore.shared.entries.isEmpty)
+                    .help("Copy All — copy log entries to clipboard")
+
+                    Button {
+                        let panel = NSSavePanel()
+                        panel.nameFieldStringValue = "Spotlight Off Log.txt"
+                        panel.allowedContentTypes = [UTType.plainText]
+                        let handler: (NSApplication.ModalResponse) -> Void = { response in
+                            guard response == .OK, let url = panel.url else { return }
+                            let text = LogStore.shared.entries.map(\.text).joined(separator: "\n")
+                            try? text.write(to: url, atomically: true, encoding: .utf8)
+                        }
+                        if let window = NSApp.keyWindow {
+                            panel.beginSheetModal(for: window, completionHandler: handler)
+                        } else {
+                            panel.begin(completionHandler: handler)
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
                     .disabled(LogStore.shared.entries.isEmpty)
+                    .help("Export — save log to a text file")
 
-                    // Separator between utility and destructive actions.
                     Divider()
                         .frame(height: 10)
 
-                    // Clear — destructive, red, matching "Clear All" in Drives tab.
-                    Button("Clear") { LogStore.shared.clear() }
-                        .buttonStyle(.borderless)
-                        .font(.caption).fontWeight(.semibold)
-                        .foregroundStyle(.red)
-                        .disabled(LogStore.shared.entries.isEmpty)
+                    Button {
+                        LogStore.shared.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                    .disabled(LogStore.shared.entries.isEmpty)
+                    .help("Clear — remove all log entries")
                 }
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .background(Color(NSColor.windowBackgroundColor))
         .padding(.top, 8)
     }
 }
@@ -279,6 +344,7 @@ private struct HistoryRowView: View {
     let entry: DriveEntry
     let onRemove: () -> Void
     let onExclude: () -> Void
+    var onRetry: (() -> Void)? = nil
 
     @State private var isHovering = false
 
@@ -313,16 +379,35 @@ private struct HistoryRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
                     .fontWeight(.medium)
-                Text(entry.mountPath)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 4) {
+                    Text(entry.mountPath)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let fmt = entry.format {
+                        Text(fmt)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                    }
+                }
             }
             Spacer()
             // Show action buttons on hover; date otherwise.
             if isHovering {
                 HStack(spacing: 10) {
+                    // Retry — only shown for failed entries on currently-mounted drives.
+                    if let retry = onRetry {
+                        Button(action: retry) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Retry — attempt to disable Spotlight indexing again")
+                    }
                     Button(action: onExclude) {
                         Image(systemName: "nosign")
                             .foregroundStyle(.orange)
@@ -389,17 +474,21 @@ struct LogView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(store.entries) { entry in
-                        Text(entry.text)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(entry.id)
+                if store.entries.isEmpty {
+                    Text("No activity yet")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
+                        .padding(8)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(store.entries) { entry in
+                            LogEntryRow(entry: entry)
+                                .id(entry.id)
+                        }
                     }
+                    .padding(8)
                 }
-                .padding(8)
             }
             .onChange(of: store.entries.count) { _, _ in
                 if let last = store.entries.last {
@@ -407,5 +496,51 @@ struct LogView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Log Entry Row
+
+private struct LogEntryRow: View {
+    let entry: LogEntry
+
+    /// Splits "[HH:MM:SS AM/PM] message" into its two parts.
+    private var parts: (timestamp: String, message: String) {
+        let text = entry.text
+        guard text.hasPrefix("["), let end = text.firstIndex(of: "]") else {
+            return ("", text)
+        }
+        let ts  = String(text[text.startIndex...end])
+        let msg = String(text[text.index(after: end)...])
+            .trimmingCharacters(in: .whitespaces)
+        return (ts, msg)
+    }
+
+    /// Semantic color based on message content.
+    private var messageColor: Color {
+        let msg = parts.message.lowercased()
+        if msg.contains("error") || msg.contains("failed") || msg.contains("failure") {
+            return Color(red: 1.0, green: 0.35, blue: 0.35)   // soft red
+        }
+        if msg.contains("successfully") || msg.contains("already disabled") || msg.hasSuffix(": disabled") {
+            return Color(red: 0.35, green: 0.85, blue: 0.50)  // soft green
+        }
+        // Verbose mdutil detail lines — de-emphasise them
+        if msg.hasPrefix("mdutil") || msg.hasPrefix("using path") {
+            return Color.secondary.opacity(0.6)
+        }
+        return Color.secondary
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 4) {
+            Text(parts.timestamp)
+                .foregroundStyle(.tertiary)
+            Text(parts.message)
+                .foregroundStyle(messageColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .textSelection(.enabled)
     }
 }
