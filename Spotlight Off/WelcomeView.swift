@@ -26,6 +26,15 @@ struct WelcomeView: View {
     var onDismiss: () -> Void
 
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    @State private var hasFDA: Bool = false
+
+    /// Checks whether Full Disk Access has been granted by attempting to read
+    /// the TCC database, which is only readable with FDA.
+    private static func checkFDA() -> Bool {
+        FileManager.default.isReadableFile(
+            atPath: "/Library/Application Support/com.apple.TCC/TCC.db"
+        )
+    }
 
     /// Computed binding so toggling here updates SMAppService immediately,
     /// and the same state is reflected in the General tab without any extra work.
@@ -97,6 +106,11 @@ struct WelcomeView: View {
             }
         }
         .frame(width: 460, height: 580)
+        .onAppear { hasFDA = Self.checkFDA() }
+        // Re-check when the user returns from System Settings.
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)
+        ) { _ in hasFDA = Self.checkFDA() }
     }
 
     // MARK: - Header
@@ -129,8 +143,9 @@ struct WelcomeView: View {
                 number: 1,
                 title: "Allow Full Disk Access",
                 description: "Required for silent mdutil control — no password dialog on every mount. Find Spotlight Off in System Settings and toggle it on.",
-                actionLabel: "Open Privacy & Security →",
-                actionURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+                actionLabel: hasFDA ? nil : "Open Privacy & Security →",
+                actionURL: hasFDA ? nil : "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                isComplete: hasFDA
             )
             stepDivider
             SetupStepRow(
@@ -245,6 +260,7 @@ private struct SetupStepRow: View {
     let actionURL: String?
     var actionCallback: (() -> Void)? = nil
     var toggleBinding: Binding<Bool>? = nil
+    var isComplete: Bool = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -290,7 +306,27 @@ private struct SetupStepRow: View {
 
     @ViewBuilder
     private var stepNumber: some View {
-        if #available(macOS 26, *) {
+        if isComplete {
+            // Green checkmark replaces the number when the step is done.
+            if #available(macOS 26, *) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .glassEffect(.regular.tint(Color.green.opacity(0.7)), in: .circle)
+                    .padding(.top, 1)
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.85))
+                        .frame(width: 24, height: 24)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.top, 1)
+            }
+        } else if #available(macOS 26, *) {
             Text("\(number)")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)

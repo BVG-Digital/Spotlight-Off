@@ -86,18 +86,28 @@ struct DriveEntry: Codable, Identifiable, Equatable {
 // MARK: - Log Entry
 
 /// A single timestamped line in the activity log.
-struct LogEntry: Identifiable {
-    let id   = UUID()
+/// Codable so entries can be persisted across app restarts.
+struct LogEntry: Identifiable, Codable {
+    let id:   UUID
+    let date: Date    // wall-clock date, used for date-context display and persistence
     let text: String
+
+    init(text: String, date: Date = Date()) {
+        self.id   = UUID()
+        self.date = date
+        self.text = text
+    }
 }
 
 // MARK: - Log Store
 
-/// Append-only in-memory activity log, capped at 200 entries.
+/// Append-only activity log, capped at 200 entries, persisted to UserDefaults.
 /// Not actor-isolated — log() marshals to main internally via DispatchQueue.
 class LogStore: ObservableObject {
     static let shared = LogStore()
     @Published var entries: [LogEntry] = []
+
+    private static let key = "spotlightoff.log"
 
     // DateFormatter is expensive to create — cache it as a static.
     private static let timeFormatter: DateFormatter = {
@@ -107,18 +117,38 @@ class LogStore: ObservableObject {
         return f
     }()
 
+    init() { load() }
+
     func log(_ message: String) {
-        let timestamp = Self.timeFormatter.string(from: Date())
+        let now = Date()
+        let timestamp = Self.timeFormatter.string(from: now)
         let line = "[\(timestamp)] \(message)"
         print(line)
         DispatchQueue.main.async {
-            self.entries.append(LogEntry(text: line))
+            self.entries.append(LogEntry(text: line, date: now))
             if self.entries.count > 200 { self.entries.removeFirst() }
+            self.save()
         }
     }
 
     func clear() {
-        DispatchQueue.main.async { self.entries = [] }
+        DispatchQueue.main.async {
+            self.entries = []
+            self.save()
+        }
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: Self.key)
+        }
+    }
+
+    private func load() {
+        guard let data    = UserDefaults.standard.data(forKey: Self.key),
+              let decoded = try? JSONDecoder().decode([LogEntry].self, from: data)
+        else { return }
+        entries = decoded
     }
 }
 

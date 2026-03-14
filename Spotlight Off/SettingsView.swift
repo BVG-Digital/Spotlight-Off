@@ -88,6 +88,7 @@ struct SettingsView: View {
 private struct GeneralTabView: View {
     @ObservedObject var monitor: DriveMonitor
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    @AppStorage("spotlightoff.notificationsEnabled") private var notificationsEnabled = true
 
     var body: some View {
         Form {
@@ -160,6 +161,7 @@ private struct GeneralTabView: View {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
+                Toggle("Show notifications", isOn: $notificationsEnabled)
             } footer: {
                 Text("If Full Disk Access is not granted, administrator approval will be required each time a drive is processed.")
                     .font(.caption)
@@ -196,6 +198,9 @@ private struct DrivesTabView: View {
                             onExclude: { monitor.addExclusion(mountPath: entry.mountPath) },
                             onRetry:   entry.status == .failed && monitor.mountedPaths.contains(entry.mountPath)
                                            ? { monitor.reprocess(entry: entry) }
+                                           : nil,
+                            onReEnable: entry.status != .failed && monitor.mountedPaths.contains(entry.mountPath)
+                                           ? { monitor.reEnableSpotlight(entry: entry) }
                                            : nil
                         )
                     }
@@ -345,6 +350,7 @@ private struct HistoryRowView: View {
     let onRemove: () -> Void
     let onExclude: () -> Void
     var onRetry: (() -> Void)? = nil
+    var onReEnable: (() -> Void)? = nil
 
     @State private var isHovering = false
 
@@ -407,6 +413,15 @@ private struct HistoryRowView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Retry — attempt to disable Spotlight indexing again")
+                    }
+                    // Re-enable — shown for disabled/alreadyDisabled on mounted drives.
+                    if let reEnable = onReEnable {
+                        Button(action: reEnable) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.blue.opacity(0.7))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Re-enable Spotlight — indexing will be disabled again on next connect unless excluded")
                     }
                     Button(action: onExclude) {
                         Image(systemName: "nosign")
@@ -490,6 +505,11 @@ struct LogView: View {
                     .padding(8)
                 }
             }
+            .onAppear {
+                if let last = store.entries.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
             .onChange(of: store.entries.count) { _, _ in
                 if let last = store.entries.last {
                     proxy.scrollTo(last.id, anchor: .bottom)
@@ -504,15 +524,32 @@ struct LogView: View {
 private struct LogEntryRow: View {
     let entry: LogEntry
 
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     /// Splits "[HH:MM:SS AM/PM] message" into its two parts.
+    /// Prepends the date to the timestamp when the entry is not from today.
     private var parts: (timestamp: String, message: String) {
         let text = entry.text
         guard text.hasPrefix("["), let end = text.firstIndex(of: "]") else {
             return ("", text)
         }
-        let ts  = String(text[text.startIndex...end])
+        let timeOnly = String(text[text.index(after: text.startIndex)..<end]) // HH:MM:SS AM
         let msg = String(text[text.index(after: end)...])
             .trimmingCharacters(in: .whitespaces)
+
+        let cal = Calendar.current
+        let ts: String
+        if cal.isDateInToday(entry.date) {
+            ts = "[\(timeOnly)]"
+        } else if cal.isDateInYesterday(entry.date) {
+            ts = "[Yesterday \(timeOnly)]"
+        } else {
+            ts = "[\(Self.dayFormatter.string(from: entry.date)) \(timeOnly)]"
+        }
         return (ts, msg)
     }
 

@@ -353,6 +353,9 @@ class DriveMonitor: ObservableObject {
     }
 
     private func sendNotification(driveName: String, succeeded: Bool) {
+        // Respect the user's notification preference (defaults to true).
+        guard UserDefaults.standard.object(forKey: "spotlightoff.notificationsEnabled") as? Bool ?? true
+        else { return }
         // Sanitize: strip invisible/control code points and cap length.
         let safeName = String(
             driveName
@@ -531,6 +534,21 @@ class DriveMonitor: ObservableObject {
     }
 
     // MARK: - Reprocess
+
+    /// Re-enables Spotlight indexing on a drive that is currently mounted,
+    /// without adding it to the exclusion list. The app will disable it again
+    /// on the next connect unless the drive is excluded.
+    func reEnableSpotlight(entry: DriveEntry) {
+        guard mountedPaths.contains(entry.mountPath) else { return }
+        let name = entry.name
+        let deep = resolvedPath(for: entry.mountPath)
+        LogStore.shared.log("Manually re-enabling Spotlight indexing on \u{201C}\(name)\u{201D}\u{2026}")
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let ok = self.enableIndexing(path: deep)
+            LogStore.shared.log("Spotlight indexing \(ok ? "successfully re-enabled" : "could not be re-enabled") on \u{201C}\(name)\u{201D}.")
+        }
+    }
 
     /// Manually re-runs Spotlight disable on a drive that is currently mounted.
     /// Only acts if the drive is connected and not already being processed.
