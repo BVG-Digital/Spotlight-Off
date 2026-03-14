@@ -58,19 +58,19 @@ struct WelcomeView: View {
             GeometryReader { geo in
                 // Top-centre: cool blue-grey bloom
                 RadialGradient(
-                    colors: [Color(red: 0.25, green: 0.35, blue: 0.55).opacity(0.35), .clear],
+                    colors: [Color(red: 0.20, green: 0.35, blue: 0.60).opacity(0.55), .clear],
                     center: .init(x: 0.5, y: 0.0),
                     startRadius: 0,
-                    endRadius: geo.size.width * 0.65
+                    endRadius: geo.size.width * 0.75
                 )
                 .ignoresSafeArea()
 
-                // Bottom-leading: very faint warm accent
+                // Bottom-leading: warm purple accent
                 RadialGradient(
-                    colors: [Color(red: 0.30, green: 0.20, blue: 0.45).opacity(0.18), .clear],
-                    center: .init(x: 0.1, y: 1.0),
+                    colors: [Color(red: 0.35, green: 0.18, blue: 0.50).opacity(0.35), .clear],
+                    center: .init(x: 0.05, y: 1.0),
                     startRadius: 0,
-                    endRadius: geo.size.width * 0.55
+                    endRadius: geo.size.width * 0.65
                 )
                 .ignoresSafeArea()
             }

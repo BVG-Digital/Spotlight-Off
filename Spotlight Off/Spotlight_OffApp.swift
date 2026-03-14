@@ -49,7 +49,7 @@ struct SpotlightOffApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(monitor: appDelegate.driveMonitor)
+            MenuBarView(monitor: appDelegate.driveMonitor, appDelegate: appDelegate)
         } label: {
             Image(systemName: appState.iconName)
                 .accessibilityLabel("Spotlight Off")
@@ -72,7 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // is unreliable. Kept alive (isReleasedWhenClosed = false) so it can be
     // raised rather than recreated on subsequent calls.
     private var fallbackSettingsWindow: NSWindow?
-    private var welcomeWindow: NSWindow?
+    var welcomeWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -84,13 +84,68 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
             openWelcome()
         }
+        checkForUpdates()
+    }
+
+    /// Fetches the latest GitHub release tag and sets AppState.updateAvailable
+    /// if it differs from the current bundle version. Runs silently in the background.
+    private func checkForUpdates() {
+        Task.detached(priority: .background) {
+            guard let url = URL(string: "https://api.github.com/repos/BVG-Digital/Spotlight-Off/releases/latest"),
+                  let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            else { return }
+            var request = URLRequest(url: url)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.timeoutInterval = 10
+            guard let (data, _) = try? await URLSession.shared.data(for: request),
+                  let json     = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tagName  = json["tag_name"] as? String
+            else { return }
+            // Strip leading "v" and whitespace, then do a proper semantic version
+            // comparison so we only show the banner when GitHub is strictly newer.
+            let latest   = String(tagName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                         .drop(while: { $0 == "v" }))
+            let localVer = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard Self.isVersion(latest, newerThan: localVer) else { return }
+            await MainActor.run { AppState.shared.updateAvailable = tagName }
+        }
+    }
+
+    /// Returns true only if `a` is strictly greater than `b` by semantic versioning.
+    /// e.g. isVersion("1.1.2", newerThan: "1.1.1") == true
+    ///      isVersion("1.1.1", newerThan: "1.1.2") == false
+    ///      isVersion("1.1.2", newerThan: "1.1.2") == false
+    nonisolated static func isVersion(_ a: String, newerThan b: String) -> Bool {
+        let parse: (String) -> [Int] = {
+            $0.split(separator: ".").compactMap { Int($0) }
+        }
+        let av = parse(a), bv = parse(b)
+        let len = max(av.count, bv.count)
+        for i in 0 ..< len {
+            let x = i < av.count ? av[i] : 0
+            let y = i < bv.count ? bv[i] : 0
+            if x > y { return true }
+            if x < y { return false }
+        }
+        return false // equal
     }
 
     func openWelcome() {
-        if let window = welcomeWindow, window.isVisible {
+        // MenuBarExtra button actions fire while the popover is still animating
+        // closed. A small async delay lets the menu fully dismiss so our window
+        // raise isn't immediately clobbered by the popover close animation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?._showWelcomeWindow()
+        }
+    }
+
+    func _showWelcomeWindow() {
+        if let window = welcomeWindow {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.setIsVisible(true)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             return
         }
         let hosting = NSHostingView(rootView: WelcomeView {
@@ -99,21 +154,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         })
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 580),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Welcome to Spotlight Off"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.backgroundColor = NSColor(white: 0.055, alpha: 1)
+        hosting.autoresizingMask = [.width, .height]
         window.contentView = hosting
         window.center()
         window.level = .floating
         window.isReleasedWhenClosed = false
+        welcomeWindow = window
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-        NSApp.activate(ignoringOtherApps: true)
-        welcomeWindow = window
+        NSApp.activate()
     }
 
     /// Opens the settings window directly via NSWindow, bypassing the SwiftUI
@@ -135,6 +193,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "Spotlight Off"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = .clear
         window.contentView = hosting
         window.center()
         window.level = .floating
@@ -150,6 +211,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuBarView: View {
     @ObservedObject var monitor: DriveMonitor
+    let appDelegate: AppDelegate
+    @ObservedObject private var appState = AppState.shared
     @Environment(\.openSettings) private var openSettings
 
     /// Connected drives with Spotlight disabled — listed in order of last seen.
@@ -213,8 +276,16 @@ struct MenuBarView: View {
 
         Divider()
 
+        // Update available — only shown when a newer GitHub release is detected.
+        if let tag = appState.updateAvailable {
+            Button("Update available: \(tag) \u{2192}") {
+                NSWorkspace.shared.open(URL(string: "https://github.com/BVG-Digital/Spotlight-Off/releases/latest")!)
+            }
+            Divider()
+        }
+
         Button("Setup Guide\u{2026}") {
-            (NSApp.delegate as? AppDelegate)?.openWelcome()
+            appDelegate.openWelcome()
         }
 
         Button("History & Settings\u{2026}") {
@@ -224,7 +295,7 @@ struct MenuBarView: View {
             DispatchQueue.main.async {
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.windows
-                    .filter { $0.canBecomeKey && !($0 is NSPanel) }
+                    .filter { $0.canBecomeKey && $0.isVisible && !($0 is NSPanel) }
                     .forEach {
                         $0.level = .floating
                         $0.makeKeyAndOrderFront(nil)
