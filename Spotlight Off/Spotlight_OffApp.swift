@@ -81,8 +81,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         driveMonitor.scanMountedVolumes()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
         // Show the welcome screen on first launch.
+        // Use a longer delay than openWelcome() — applicationDidFinishLaunching
+        // fires before the app is fully active, so we need more time for the
+        // system to hand focus to a menu bar app before ordering the window front.
         if !UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
-            openWelcome()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?._showWelcomeWindow()
+            }
         }
         checkForUpdates()
     }
@@ -143,9 +148,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let window = welcomeWindow {
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.setIsVisible(true)
+            NSApp.activate()
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
-            NSApp.activate()
             return
         }
         let hosting = NSHostingView(rootView: WelcomeView {
@@ -169,9 +174,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.level = .floating
         window.isReleasedWhenClosed = false
         welcomeWindow = window
+        NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-        NSApp.activate()
     }
 
     /// Opens the settings window directly via NSWindow, bypassing the SwiftUI
