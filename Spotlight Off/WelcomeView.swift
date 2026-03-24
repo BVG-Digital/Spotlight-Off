@@ -4,8 +4,10 @@
 // Shown automatically on first launch (hasSeenWelcome UserDefaults key absent).
 // Also accessible via "Setup Guide…" in the menu bar dropdown.
 //
-// Design: deep dark background with Liquid Glass surfaces on macOS 26 Tahoe;
-// graceful dark frosted-glass card fallback on macOS 14–25.
+// Design: automatically adapts to the system light/dark appearance.
+//
+//   Dark mode  — deep midnight base with blue/purple gradient blooms.
+//   Light mode — soft off-white base with subtle tinted blooms.
 //
 // Glass elements on macOS 26:
 //   • Steps card  — .glassEffect(.regular, in: RoundedRectangle)
@@ -13,7 +15,7 @@
 //   • Get Started  — .glassEffect(.regular.tint(accentColor), in: RoundedRectangle)
 //
 // Fallback on macOS 14–25:
-//   • Cards use a semi-transparent white fill + hairline stroke
+//   • Cards use .ultraThinMaterial (adapts to appearance) + hairline stroke
 //   • Step circles use a solid accent-coloured fill
 //   • Buttons use solid accent fill
 
@@ -29,18 +31,44 @@ struct WelcomeView: View {
     @State private var hasFDA: Bool = false
     @State private var buttonPulse = false
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDark: Bool { colorScheme == .dark }
     private var allComplete: Bool { hasFDA && launchAtLogin }
+
+    // MARK: - Adaptive colours
+
+    /// Base window background — near-black in dark, near-white in light.
+    private var baseBG: Color {
+        isDark ? Color(white: 0.055) : Color(white: 0.96)
+    }
+
+    /// Primary text — white in dark, near-black in light.
+    private var primaryText: Color { isDark ? .white : Color(white: 0.10) }
+
+    /// Secondary / dimmed text.
+    private var secondaryText: Color { isDark ? Color.white.opacity(0.45) : Color.black.opacity(0.45) }
+
+    /// Faint divider overlay — just enough to be visible against the base.
+    private var dividerOverlay: Color {
+        isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+    }
+
+    /// Header icon circle fill.
+    private var iconCircleFill: Color {
+        isDark ? Color.white.opacity(0.08) : Color.accentColor.opacity(0.10)
+    }
+
+    // MARK: - FDA detection
 
     /// Checks whether Full Disk Access has been granted.
     /// Tries two protected locations — the system TCC database and the
     /// per-user TCC database.  Either being readable confirms FDA.
     private static func checkFDA() -> Bool {
         let fm = FileManager.default
-        // System-level TCC database (requires FDA)
         if fm.isReadableFile(atPath: "/Library/Application Support/com.apple.TCC/TCC.db") {
             return true
         }
-        // Per-user TCC database (also requires FDA, and present on all macOS 14+)
         let userTCC = (NSHomeDirectory() as NSString)
             .appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
         return fm.isReadableFile(atPath: userTCC)
@@ -76,16 +104,19 @@ struct WelcomeView: View {
 
     var body: some View {
         ZStack {
-            // Greyscale midnight base.
-            Color(white: 0.055)
-                .ignoresSafeArea()
+            // Adaptive base background.
+            baseBG.ignoresSafeArea()
 
-            // Subtle colour blooms so Liquid Glass (macOS 26) has something
-            // to refract. On older OS versions these just add gentle depth.
+            // Colour blooms — same hues in both modes, opacity tuned per mode
+            // so they add depth without washing out light backgrounds.
             GeometryReader { geo in
-                // Top-centre: cool blue-grey bloom
+                // Top-centre: cool blue bloom
                 RadialGradient(
-                    colors: [Color(red: 0.20, green: 0.35, blue: 0.60).opacity(0.55), .clear],
+                    colors: [
+                        Color(red: 0.20, green: 0.35, blue: 0.60)
+                            .opacity(isDark ? 0.55 : 0.12),
+                        .clear
+                    ],
                     center: .init(x: 0.5, y: 0.0),
                     startRadius: 0,
                     endRadius: geo.size.width * 0.75
@@ -94,7 +125,11 @@ struct WelcomeView: View {
 
                 // Bottom-leading: warm purple accent
                 RadialGradient(
-                    colors: [Color(red: 0.35, green: 0.18, blue: 0.50).opacity(0.35), .clear],
+                    colors: [
+                        Color(red: 0.35, green: 0.18, blue: 0.50)
+                            .opacity(isDark ? 0.35 : 0.08),
+                        .clear
+                    ],
                     center: .init(x: 0.05, y: 1.0),
                     startRadius: 0,
                     endRadius: geo.size.width * 0.65
@@ -108,16 +143,14 @@ struct WelcomeView: View {
                     .padding(.top, 24)
                     .padding(.bottom, 16)
 
-                Divider()
-                    .overlay(Color.white.opacity(0.10))
+                Divider().overlay(dividerOverlay)
 
                 // No ScrollView — all three steps are visible at once.
                 stepsSection
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
 
-                Divider()
-                    .overlay(Color.white.opacity(0.10))
+                Divider().overlay(dividerOverlay)
 
                 footerSection
                     .padding(20)
@@ -143,7 +176,7 @@ struct WelcomeView: View {
         VStack(spacing: 8) {
             ZStack {
                 Circle()
-                    .fill(Color.white.opacity(0.08))
+                    .fill(iconCircleFill)
                     .frame(width: 56, height: 56)
                 Image(systemName: "externaldrive.badge.xmark")
                     .font(.system(size: 24, weight: .medium))
@@ -151,10 +184,10 @@ struct WelcomeView: View {
             }
             Text("Welcome to Spotlight Off")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(primaryText)
             Text("Set up in three steps — takes less than a minute.")
                 .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(secondaryText)
         }
         .frame(maxWidth: .infinity)
     }
@@ -196,7 +229,7 @@ struct WelcomeView: View {
 
     private var stepDivider: some View {
         Divider()
-            .overlay(Color.white.opacity(0.06))
+            .overlay(dividerOverlay)
             .padding(.horizontal, 14)
     }
 
@@ -207,7 +240,7 @@ struct WelcomeView: View {
             getStartedButton
             Link("View on GitHub", destination: URL(string: "https://github.com/BVG-Digital/Spotlight-Off")!)
                 .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.3))
+                .foregroundStyle(secondaryText)
         }
     }
 
@@ -231,7 +264,7 @@ struct WelcomeView: View {
                 .padding(.vertical, 11)
             }
             .glassEffect(.regular.tint(buttonTint), in: RoundedRectangle(cornerRadius: 10))
-            .foregroundStyle(.white)
+            .foregroundStyle(primaryText)
             .scaleEffect(buttonPulse ? 1.018 : 1.0)
             .animation(.easeInOut(duration: 0.25), value: allComplete)
         } else {
@@ -246,7 +279,7 @@ struct WelcomeView: View {
                         .font(.system(size: 15, weight: .semibold))
                         .animation(nil, value: allComplete)
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(isDark ? .white : Color(white: 0.10))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
                 .background(
@@ -254,11 +287,15 @@ struct WelcomeView: View {
                         .fill(.ultraThinMaterial)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(red: 0.20, green: 0.30, blue: 0.50).opacity(0.45))
+                                .fill(Color(red: 0.20, green: 0.30, blue: 0.50)
+                                    .opacity(isDark ? 0.45 : 0.15))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                                .stroke(
+                                    isDark ? Color.white.opacity(0.18) : Color.black.opacity(0.10),
+                                    lineWidth: 0.5
+                                )
                         )
                 )
                 .scaleEffect(buttonPulse ? 1.018 : 1.0)
@@ -272,21 +309,20 @@ struct WelcomeView: View {
 // MARK: - Glass Card Modifier
 
 private extension View {
-    /// Applies a Liquid Glass card background on macOS 26+, and a dark
+    /// Applies a Liquid Glass card background on macOS 26+, and an adaptive
     /// frosted-glass-style card on macOS 14–25.
     @ViewBuilder
     func glassCard() -> some View {
         if #available(macOS 26, *) {
             self.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
         } else {
-            // .ultraThinMaterial gives a real blur + translucency on macOS 12–25,
-            // which reads as frosted glass against the dark background.
+            // .ultraThinMaterial adapts automatically to light and dark mode.
             self.background(
                 RoundedRectangle(cornerRadius: 14)
                     .fill(.ultraThinMaterial)
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                            .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
                     )
             )
         }
@@ -305,16 +341,19 @@ private struct SetupStepRow: View {
     var toggleBinding: Binding<Bool>? = nil
     var isComplete: Bool = false
 
+    @Environment(\.colorScheme) private var colorScheme
+    private var isDark: Bool { colorScheme == .dark }
+
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
             stepNumber
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 Text(description)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 // URL action
                 if let label = actionLabel,
