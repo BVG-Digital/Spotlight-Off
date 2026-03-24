@@ -42,26 +42,30 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @ObservedObject var monitor: DriveMonitor
     @State private var selectedTab = 0
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
-            // Greyscale midnight base — matches WelcomeView palette.
-            Color(white: 0.055).ignoresSafeArea()
+            // Use the native window background so light/dark mode is respected.
+            Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
 
-            // Subtle gradient blooms so Liquid Glass sections have something to refract.
-            GeometryReader { geo in
-                RadialGradient(
-                    colors: [Color(red: 0.25, green: 0.35, blue: 0.55).opacity(0.22), .clear],
-                    center: .init(x: 0.80, y: 0.05),
-                    startRadius: 0,
-                    endRadius: geo.size.width * 0.65
-                ).ignoresSafeArea()
-                RadialGradient(
-                    colors: [Color(red: 0.30, green: 0.20, blue: 0.45).opacity(0.12), .clear],
-                    center: .init(x: 0.10, y: 0.95),
-                    startRadius: 0,
-                    endRadius: geo.size.width * 0.55
-                ).ignoresSafeArea()
+            // Subtle gradient blooms — only applied in dark mode where they add
+            // depth without washing out the light appearance.
+            if colorScheme == .dark {
+                GeometryReader { geo in
+                    RadialGradient(
+                        colors: [Color(red: 0.25, green: 0.35, blue: 0.55).opacity(0.22), .clear],
+                        center: .init(x: 0.80, y: 0.05),
+                        startRadius: 0,
+                        endRadius: geo.size.width * 0.65
+                    ).ignoresSafeArea()
+                    RadialGradient(
+                        colors: [Color(red: 0.30, green: 0.20, blue: 0.45).opacity(0.12), .clear],
+                        center: .init(x: 0.10, y: 0.95),
+                        startRadius: 0,
+                        endRadius: geo.size.width * 0.55
+                    ).ignoresSafeArea()
+                }
             }
 
             TabView(selection: $selectedTab) {
