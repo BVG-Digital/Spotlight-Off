@@ -303,6 +303,11 @@ class DriveMonitor: ObservableObject {
         if isInternal { return false }
         if !isLocal   { return false }
         if isDiskImageVolume(url) { return false }
+        // Exclude ephemeral APFS snapshot mounts created by Time Machine, backup
+        // software, or macOS update staging. These mount under /private/tmp with
+        // paths like /private/tmp/16777233@260324112358, pass all other filters,
+        // then unmount within seconds — causing mdutil to fail with "invalid path".
+        if url.path.hasPrefix("/private/tmp") || url.path.hasPrefix("/tmp") { return false }
         return true
     }
 
@@ -322,6 +327,15 @@ class DriveMonitor: ObservableObject {
     private func handleVolume(path: String, name: String, mountPath: String, format: String? = nil) async {
         // Always remove from in-flight when done — we're on MainActor so no dispatch needed.
         defer { inFlight.remove(mountPath) }
+
+        // Defensive check: if the volume unmounted during the 2.5s settling delay
+        // (common with ephemeral snapshot mounts), bail out before calling mdutil.
+        // mountedPaths is already kept current by volumeUnmounted(_:), so this
+        // is more consistent than a filesystem call and avoids any I/O overhead.
+        guard mountedPaths.contains(mountPath) else {
+            LogStore.shared.log("Skipping \u{201C}\(name)\u{201D} \u{2014} volume unmounted before processing could begin.")
+            return
+        }
 
         // Run the blocking process calls off the main thread.
         let enabled = await Task.detached(priority: .utility) { self.isIndexingEnabled(path: path) }.value

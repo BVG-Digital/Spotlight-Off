@@ -167,7 +167,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
-        window.backgroundColor = NSColor(white: 0.055, alpha: 1)
+        window.backgroundColor = NSColor.windowBackgroundColor
         hosting.autoresizingMask = [.width, .height]
         window.contentView = hosting
         window.center()
