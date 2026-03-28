@@ -590,7 +590,7 @@ class DriveMonitor: ObservableObject {
             guard let self else { return }
             let ok = self.enableIndexing(path: deep)
             LogStore.shared.log("Spotlight indexing \(ok ? "successfully re-enabled" : "could not be re-enabled") on \u{201C}\(name)\u{201D}.")
-            await MainActor.run { self.inFlight.remove(mountPath) }
+            await MainActor.run { _ = self.inFlight.remove(mountPath) }
         }
     }
 

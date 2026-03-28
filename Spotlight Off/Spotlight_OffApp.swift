@@ -200,7 +200,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Spotlight Off"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = .clear
+        window.backgroundColor = NSColor.windowBackgroundColor
         window.contentView = hosting
         window.center()
         window.level = .floating

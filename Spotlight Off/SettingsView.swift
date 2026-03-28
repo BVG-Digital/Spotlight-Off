@@ -563,7 +563,8 @@ private struct LogEntryRow: View {
         if msg.contains("error") || msg.contains("failed") || msg.contains("failure") {
             return Color(red: 1.0, green: 0.35, blue: 0.35)   // soft red
         }
-        if msg.contains("successfully") || msg.contains("already disabled") || msg.hasSuffix(": disabled") {
+        if msg.contains("successfully") || msg.contains("already disabled")
+            || msg.hasSuffix(": disabled") || msg.contains("indexing disabled") {
             return Color(red: 0.35, green: 0.85, blue: 0.50)  // soft green
         }
         // Verbose mdutil detail lines — de-emphasise them
