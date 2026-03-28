@@ -266,7 +266,7 @@ class DriveMonitor: ObservableObject {
         LogStore.shared.log("External drive connected: \u{201C}\(name)\u{201D} \u{2014} disabling Spotlight indexing\u{2026}")
 
         Task.detached(priority: .utility) { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_500_000_000) // 2.5 s mount settling delay
+            try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 s mount settling delay
             await self?.handleVolume(path: deep, name: name, mountPath: mountPath, format: format)
         }
     }
@@ -324,11 +324,11 @@ class DriveMonitor: ObservableObject {
 
     // MARK: - Spotlight Check & Disable
 
-    private func handleVolume(path: String, name: String, mountPath: String, format: String? = nil) async {
+    private func handleVolume(path: String, name: String, mountPath: String, format: String? = nil, isRetry: Bool = false) async {
         // Always remove from in-flight when done — we're on MainActor so no dispatch needed.
         defer { inFlight.remove(mountPath) }
 
-        // Defensive check: if the volume unmounted during the 2.5s settling delay
+        // Defensive check: if the volume unmounted during the settling delay
         // (common with ephemeral snapshot mounts), bail out before calling mdutil.
         // mountedPaths is already kept current by volumeUnmounted(_:), so this
         // is more consistent than a filesystem call and avoids any I/O overhead.
@@ -337,24 +337,53 @@ class DriveMonitor: ObservableObject {
             return
         }
 
+        if isRetry {
+            LogStore.shared.log("Retrying \u{201C}\(name)\u{201D}\u{2026}")
+        }
+
         // Run the blocking process calls off the main thread.
         let enabled = await Task.detached(priority: .utility) { self.isIndexingEnabled(path: path) }.value
-        LogStore.shared.log("Spotlight indexing on \u{201C}\(name)\u{201D}: \(enabled ? "enabled" : "disabled")")
 
         guard enabled else {
             // Spotlight was already disabled — no action needed, but still record
             // the drive so the Drives tab reflects all verified-disabled drives.
-            LogStore.shared.log("Spotlight indexing already disabled on \u{201C}\(name)\u{201D} \u{2014} no action required.")
+            LogStore.shared.log("\u{201C}\(name)\u{201D} \u{2014} Spotlight already disabled, no action needed.")
             addToHistory(name: name, path: path, mountPath: mountPath, status: .alreadyDisabled, format: format)
             return
         }
 
         let ok = await Task.detached(priority: .utility) { self.disableIndexing(path: path) }.value
-        LogStore.shared.log("Spotlight indexing \(ok ? "successfully disabled" : "could not be disabled") on \u{201C}\(name)\u{201D}.")
 
-        // Record the outcome regardless of success — failed attempts appear in the
-        // Drives tab with a red indicator so the user knows action is needed.
+        // Record the outcome — failed attempts appear in the Drives tab with a
+        // red indicator. On a successful retry the entry is updated from failed → disabled.
         addToHistory(name: name, path: path, mountPath: mountPath, status: ok ? .disabled : .failed, format: format)
+
+        if ok {
+            let suffix = isRetry ? " (retry succeeded)" : ""
+            LogStore.shared.log("\u{2705} \u{201C}\(name)\u{201D} \u{2014} Spotlight indexing disabled\(suffix).")
+        } else if isRetry {
+            LogStore.shared.log("\u{26A0}\u{FE0F} \u{201C}\(name)\u{201D} \u{2014} Spotlight disable failed on retry. Check the Drives tab for details.")
+        } else {
+            // First attempt failed — schedule one automatic retry after 5 minutes.
+            // Some drives (e.g. slow RAID arrays) need extra time to fully initialise.
+            LogStore.shared.log("\u{26A0}\u{FE0F} \u{201C}\(name)\u{201D} \u{2014} Could not disable Spotlight indexing. Will retry in 5 minutes.")
+            Task.detached(priority: .utility) { [weak self] in
+                try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
+                // Only proceed if the drive is still connected and not already being processed.
+                let shouldRetry = await MainActor.run { [weak self] () -> Bool in
+                    guard let self,
+                          self.mountedPaths.contains(mountPath),
+                          !self.inFlight.contains(mountPath) else { return false }
+                    self.inFlight.insert(mountPath)
+                    return true
+                }
+                guard shouldRetry else {
+                    LogStore.shared.log("Retry for \u{201C}\(name)\u{201D} cancelled \u{2014} drive no longer connected.")
+                    return
+                }
+                await self?.handleVolume(path: path, name: name, mountPath: mountPath, format: format, isRetry: true)
+            }
+        }
 
         if ok {
             AppState.shared.iconName = "externaldrive.badge.checkmark"
@@ -392,37 +421,27 @@ class DriveMonitor: ObservableObject {
     }
 
     private nonisolated func isIndexingEnabled(path: String) -> Bool {
+        // Use a 30s timeout — some drives (e.g. Thunderbolt RAID arrays) take
+        // longer than the default 10s to respond to mdutil status checks.
         let (p, out, err) = makeProcess("/usr/bin/mdutil", arguments: ["-s", path])
-        guard run(p) else {
-            LogStore.shared.log("mdutil status check failed \u{2014} assuming indexing is enabled.")
-            return true   // fail open: attempt disable anyway
+        guard run(p, timeout: 30) else {
+            // Timed out — fail open and attempt the disable anyway.
+            return true
         }
         let combined = readOutput(out) + readOutput(err)
         let trimmed  = combined.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Strip the firmlink prefix (/System/Volumes/Data) from the mdutil output
-        // so the logged path is the familiar /Volumes/… form, not the deep path.
-        let display  = trimmed
-            .replacingOccurrences(of: "/System/Volumes/Data/Volumes/", with: "/Volumes/")
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        LogStore.shared.log("mdutil -s: \(display)")
         // kMDConfigSearchLevelTransitioning means Spotlight is still initialising
         // on a freshly mounted drive. Treat as enabled and proceed to disable.
         if trimmed.lowercased().contains("transitioning") {
-            LogStore.shared.log("Spotlight indexing is initialising \u{2014} proceeding with disable attempt.")
+            LogStore.shared.log("Spotlight is still initialising on this drive \u{2014} proceeding with disable.")
         }
         return !trimmed.lowercased().contains("disabled")
     }
 
     private nonisolated func disableIndexing(path: String) -> Bool {
         let vPath = volumesPath(for: path)
-        LogStore.shared.log("Using path for mdutil: \(vPath)")
-
         // First try running mdutil directly — works if Full Disk Access is granted.
         if runMdutil(path: vPath) { return true }
-
         // Fall back to osascript with administrator privileges.
         return runMdutilAsAdmin(path: vPath)
     }
@@ -431,27 +450,31 @@ class DriveMonitor: ObservableObject {
     /// while currently mounted, reversing the previous disable.
     private nonisolated func enableIndexing(path: String) -> Bool {
         let vPath = volumesPath(for: path)
-        LogStore.shared.log("Using path for mdutil: \(vPath)")
         let (p, out, err) = makeProcess("/usr/bin/mdutil", arguments: ["-i", "on", vPath])
         guard run(p) else { return false }
-        LogStore.shared.log("mdutil out: \(readOutput(out).trimmingCharacters(in: .whitespacesAndNewlines))")
-        LogStore.shared.log("mdutil err: \(readOutput(err).trimmingCharacters(in: .whitespacesAndNewlines))")
-        LogStore.shared.log("mdutil exit: \(p.terminationStatus)")
+        if p.terminationStatus != 0 {
+            let output = [readOutput(out), readOutput(err)]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }.joined(separator: " ")
+            LogStore.shared.log("mdutil re-enable failed (exit \(p.terminationStatus)): \(output)")
+        }
         return p.terminationStatus == 0
     }
 
     private nonisolated func runMdutil(path: String) -> Bool {
         let (p, out, err) = makeProcess("/usr/bin/mdutil", arguments: ["-i", "off", path])
         guard run(p) else { return false }
-        LogStore.shared.log("mdutil out: \(readOutput(out).trimmingCharacters(in: .whitespacesAndNewlines))")
-        LogStore.shared.log("mdutil err: \(readOutput(err).trimmingCharacters(in: .whitespacesAndNewlines))")
-        LogStore.shared.log("mdutil exit: \(p.terminationStatus)")
-        // Exit code is the authoritative signal — stdout/stderr are for diagnostics only.
+        if p.terminationStatus != 0 {
+            let output = [readOutput(out), readOutput(err)]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }.joined(separator: " ")
+            LogStore.shared.log("mdutil failed (exit \(p.terminationStatus)): \(output)")
+        }
         return p.terminationStatus == 0
     }
 
     private nonisolated func runMdutilAsAdmin(path: String) -> Bool {
-        LogStore.shared.log("Requesting administrator privileges to disable indexing on \(path)\u{2026}")
+        LogStore.shared.log("Full Disk Access not granted \u{2014} requesting administrator approval\u{2026}")
         // Pass the path as a script argument rather than interpolating it into the
         // script string — this prevents AppleScript injection from special characters.
         let (p, out, err) = makeProcess("/usr/bin/osascript", arguments: [
@@ -462,9 +485,12 @@ class DriveMonitor: ObservableObject {
         ])
         // 5-minute timeout — the user may take time to respond to the admin dialog.
         guard run(p, timeout: 300) else { return false }
-        LogStore.shared.log("osascript out: \(readOutput(out).trimmingCharacters(in: .whitespacesAndNewlines))")
-        LogStore.shared.log("osascript err: \(readOutput(err).trimmingCharacters(in: .whitespacesAndNewlines))")
-        LogStore.shared.log("osascript exit: \(p.terminationStatus)")
+        if p.terminationStatus != 0 {
+            let output = [readOutput(out), readOutput(err)]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }.joined(separator: " ")
+            LogStore.shared.log("Admin mdutil failed (exit \(p.terminationStatus)): \(output)")
+        }
         return p.terminationStatus == 0
     }
 
@@ -553,14 +579,18 @@ class DriveMonitor: ObservableObject {
     /// without adding it to the exclusion list. The app will disable it again
     /// on the next connect unless the drive is excluded.
     func reEnableSpotlight(entry: DriveEntry) {
-        guard mountedPaths.contains(entry.mountPath) else { return }
-        let name = entry.name
-        let deep = resolvedPath(for: entry.mountPath)
+        guard mountedPaths.contains(entry.mountPath),
+              !inFlight.contains(entry.mountPath) else { return }
+        inFlight.insert(entry.mountPath)
+        let name      = entry.name
+        let deep      = resolvedPath(for: entry.mountPath)
+        let mountPath = entry.mountPath
         LogStore.shared.log("Manually re-enabling Spotlight indexing on \u{201C}\(name)\u{201D}\u{2026}")
         Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
             let ok = self.enableIndexing(path: deep)
             LogStore.shared.log("Spotlight indexing \(ok ? "successfully re-enabled" : "could not be re-enabled") on \u{201C}\(name)\u{201D}.")
+            await MainActor.run { self.inFlight.remove(mountPath) }
         }
     }
 
